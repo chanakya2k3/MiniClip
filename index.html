@@ -2,23 +2,100 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>MiniClip</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>MINICLIP — server-authoritative arena</title>
+  <!-- Pixel display face. If it can't load (offline), the monospace stack in
+       style.css takes over and the layout is unaffected. -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="style.css" id="appStyles" />
 </head>
 <body>
-  <h2>Tic-Tac-Toe — server-authoritative demo</h2>
-
-  <div id="joinForm">
-    <input id="roomId" placeholder="room id (e.g. room1)" value="room1" />
-    <input id="name" placeholder="your name" value="Player" />
-    <button id="joinBtn">Join room</button>
+  <!-- Purely decorative backdrop; kept out of the game markup so a restyle
+       can't accidentally disturb the board. -->
+  <div class="backdrop" aria-hidden="true">
+    <div class="bd-stars bd-stars--far"></div>
+    <div class="bd-stars bd-stars--near"></div>
+    <div class="bd-horizon"></div>
+    <div class="bd-sprites">
+      <span class="sprite sprite--1">▚</span>
+      <span class="sprite sprite--2">◆</span>
+      <span class="sprite sprite--3">▲</span>
+      <span class="sprite sprite--4">●</span>
+    </div>
+    <div class="bd-scanlines"></div>
+    <div class="bd-vignette"></div>
   </div>
 
-  <div id="status"></div>
-  <div id="conn"></div>
-  <div id="board"></div>
-  <button id="rematchBtn" style="display:none">Rematch</button>
-  <div id="error"></div>
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-mark">▚</span>
+      <span class="brand-name">MINI<span class="brand-name-accent">CLIP</span></span>
+    </div>
+    <div class="link-status" id="linkStatus" data-state="offline">
+      <span class="link-dot"></span>
+      <span class="link-label" id="linkLabel">CONNECTING</span>
+    </div>
+  </header>
+
+  <main class="stage">
+    <!-- Join panel -->
+    <section class="panel" id="joinForm">
+      <h1 class="panel-title">INSERT COIN</h1>
+      <p class="panel-sub">Every move is validated server-side. Your client is a viewport, not a referee.</p>
+
+      <label class="field">
+        <span class="field-label">CABINET</span>
+        <input id="roomId" placeholder="room1" value="room1" autocomplete="off" spellcheck="false" />
+      </label>
+
+      <label class="field">
+        <span class="field-label">ENTER NAME</span>
+        <input id="name" placeholder="AAA" value="Player" autocomplete="off" spellcheck="false" maxlength="16" />
+      </label>
+
+      <button id="joinBtn" class="btn btn--primary">
+        <span>PRESS START</span>
+      </button>
+    </section>
+
+    <!-- Game view -->
+    <section class="arena" id="arena" hidden>
+      <div class="roster">
+        <article class="seat" id="seatYou">
+          <span class="seat-role">1UP</span>
+          <span class="seat-symbol" id="youSymbol">—</span>
+          <span class="seat-name" id="youName">—</span>
+          <span class="seat-state" id="youState"></span>
+        </article>
+
+        <div class="versus">VS</div>
+
+        <article class="seat" id="seatOpp">
+          <span class="seat-role">2UP</span>
+          <span class="seat-symbol" id="oppSymbol">—</span>
+          <span class="seat-name" id="oppName">waiting…</span>
+          <span class="seat-state" id="oppState"></span>
+        </article>
+      </div>
+
+      <div class="turnbar" id="turnbar" data-state="idle">
+        <span class="turnbar-text" id="status">Connecting…</span>
+      </div>
+
+      <div class="board-shell">
+        <div id="board" class="board"></div>
+      </div>
+
+      <div class="actions">
+        <button id="rematchBtn" class="btn btn--ghost" hidden>PLAY AGAIN</button>
+        <span class="room-tag">CAB <b id="roomTag">—</b></span>
+      </div>
+    </section>
+  </main>
+
+  <div class="toast" id="error" role="status" aria-live="polite"></div>
 
   <!-- Socket.io client served automatically by the socket.io server -->
   <script src="/socket.io/socket.io.js"></script>
@@ -29,16 +106,23 @@
       ? io()
       : io("http://localhost:3001");
 
-    const boardEl = document.getElementById("board");
-    const statusEl = document.getElementById("status");
-    const connEl = document.getElementById("conn");
-    const errorEl = document.getElementById("error");
-    const rematchBtn = document.getElementById("rematchBtn");
-    const roomInput = document.getElementById("roomId");
-    const nameInput = document.getElementById("name");
-    const joinForm = document.getElementById("joinForm");
+    const $ = (id) => document.getElementById(id);
+
+    const boardEl = $("board");
+    const statusEl = $("status");
+    const turnbarEl = $("turnbar");
+    const errorEl = $("error");
+    const rematchBtn = $("rematchBtn");
+    const roomInput = $("roomId");
+    const nameInput = $("name");
+    const joinForm = $("joinForm");
+    const arenaEl = $("arena");
+    const linkStatus = $("linkStatus");
+    const linkLabel = $("linkLabel");
+    const roomTag = $("roomTag");
 
     let mySymbol = null; // set once the server tells us, never assumed locally
+    let lastWinKey = null; // so the win animation fires once, not on every state
 
     const STORAGE_KEYS = {
       playerId: "miniClipPlayerId",
@@ -71,23 +155,37 @@
     if (storedRoomId) roomInput.value = storedRoomId;
     if (storedName) nameInput.value = storedName;
 
-    document.getElementById("joinBtn").addEventListener("click", () => {
+    $("joinBtn").addEventListener("click", () => {
       joinRoom(roomInput.value.trim(), nameInput.value.trim() || "Player");
     });
+
+    nameInput.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") $("joinBtn").click();
+    });
+    roomInput.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") $("joinBtn").click();
+    });
+
+    function setLink(state, label) {
+      linkStatus.dataset.state = state;
+      linkLabel.textContent = label;
+    }
 
     // Fires on first connect AND on every socket.io auto-reconnect. Rejoining
     // with the same playerId is what makes a refresh land back in the same seat.
     socket.on("connect", () => {
+      setLink("online", "ONLINE");
       const roomId = sessionStorage.getItem(STORAGE_KEYS.roomId);
       if (roomId) joinRoom(roomId, nameInput.value.trim() || "Player");
     });
 
     socket.on("disconnect", () => {
-      connEl.textContent = "Disconnected — reconnecting...";
+      setLink("offline", "RECONNECTING");
     });
 
     rematchBtn.addEventListener("click", () => {
       socket.emit("room:rematch");
+      lastWinKey = null;
     });
 
     // ---- Rendering ----------------------------------------------------
@@ -97,9 +195,11 @@
     // flicker instead of an instant change.
     const cells = [];
     for (let i = 0; i < 9; i++) {
-      const div = document.createElement("div");
+      const div = document.createElement("button");
+      div.type = "button";
       div.className = "cell";
       div.dataset.index = String(i);
+      div.innerHTML = '<span class="cell-mark"></span>';
       div.addEventListener("click", () => {
         // We don't check whose turn it is here on purpose — let the
         // server be the judge. Worst case it sends back an error.
@@ -110,55 +210,109 @@
     }
 
     function renderBoard(state) {
+      const winSet = new Set(state.winningLine || []);
       state.board.forEach((cell, i) => {
         const el = cells[i];
+        const mark = el.firstElementChild;
         const value = cell || "";
-        if (el.textContent !== value) el.textContent = value;
-        el.classList.toggle("taken", Boolean(cell));
+
+        if (mark.textContent !== value) {
+          mark.textContent = value;
+          // Retrigger the drop-in animation only when the mark is new.
+          if (value) {
+            mark.classList.remove("is-placed");
+            void mark.offsetWidth; // force reflow so the animation replays
+            mark.classList.add("is-placed");
+          }
+        }
+
+        el.dataset.mark = value; // 'X' | 'O' | '' — drives the neon color
+        el.classList.toggle("is-taken", Boolean(cell));
+        el.classList.toggle("is-win", winSet.has(i));
         el.classList.toggle(
-          "playable",
+          "is-playable",
           state.status === "IN_PROGRESS" && !cell && state.turn === mySymbol
         );
+        el.disabled = Boolean(cell) || state.status !== "IN_PROGRESS";
       });
     }
 
-    function renderStatus(state) {
+    function renderRoster(state) {
       const you = state.players.find((p) => p.symbol === mySymbol);
-      const label = you ? `You are ${you.symbol}` : "";
+      const opp = state.players.find((p) => p.symbol !== mySymbol);
 
-      if (state.status === "LOBBY") {
-        statusEl.textContent = `${label} — waiting for an opponent...`;
-      } else if (state.status === "IN_PROGRESS") {
-        statusEl.textContent =
-          state.turn === mySymbol ? `${label} — your turn` : `${label} — ${state.turn}'s turn`;
-      } else if (state.status === "FINISHED") {
-        statusEl.textContent =
-          state.winner === "DRAW" ? "Draw!" : `${state.winner} wins!`;
-      }
+      $("youSymbol").textContent = you ? you.symbol : "—";
+      $("youName").textContent = you ? you.name : "—";
+      $("seatYou").dataset.mark = you ? you.symbol : "";
+      $("youState").textContent = "";
 
+      $("oppSymbol").textContent = opp ? opp.symbol : "—";
+      $("oppName").textContent = opp ? opp.name : "waiting…";
+      $("seatOpp").dataset.mark = opp ? opp.symbol : "";
       // A player who dropped still holds their seat; say so rather than
       // pretending the game ended.
-      const away = state.players.filter((p) => p.symbol !== mySymbol && !p.connected);
-      connEl.textContent = away.length
-        ? `${away.map((p) => p.name).join(", ")} disconnected — holding their seat...`
-        : "";
+      $("oppState").textContent = opp && !opp.connected ? "PAUSED — PLAYER AWAY" : "";
+      $("seatOpp").classList.toggle("is-away", Boolean(opp && !opp.connected));
 
-      rematchBtn.style.display = state.status === "FINISHED" ? "inline-block" : "none";
+      // Highlight whoever is on the clock.
+      const active = state.status === "IN_PROGRESS" ? state.turn : null;
+      $("seatYou").classList.toggle("is-active", Boolean(you) && active === you?.symbol);
+      $("seatOpp").classList.toggle("is-active", Boolean(opp) && active === opp?.symbol);
+    }
+
+    function renderStatus(state) {
+      if (state.status === "LOBBY") {
+        statusEl.textContent = "WAITING FOR PLAYER 2";
+        turnbarEl.dataset.state = "waiting";
+      } else if (state.status === "IN_PROGRESS") {
+        const mine = state.turn === mySymbol;
+        statusEl.textContent = mine ? "YOUR TURN" : `PLAYER ${state.turn} TURN`;
+        turnbarEl.dataset.state = mine ? "yours" : "theirs";
+      } else if (state.status === "FINISHED") {
+        if (state.winner === "DRAW") {
+          statusEl.textContent = "DRAW GAME";
+          turnbarEl.dataset.state = "draw";
+        } else {
+          const won = state.winner === mySymbol;
+          statusEl.textContent = won ? "YOU WIN!" : "GAME OVER";
+          turnbarEl.dataset.state = won ? "win" : "loss";
+        }
+
+        // Fire the flourish once per finished game, not on every rebroadcast.
+        const key = `${state.winner}:${(state.winningLine || []).join("")}`;
+        if (key !== lastWinKey) {
+          lastWinKey = key;
+          document.body.classList.add("is-settling");
+          setTimeout(() => document.body.classList.remove("is-settling"), 700);
+        }
+      }
+
+      rematchBtn.hidden = state.status !== "FINISHED";
+      roomTag.textContent = state.id;
+    }
+
+    let toastTimer = null;
+    function toast(message) {
+      errorEl.textContent = message;
+      errorEl.classList.add("is-visible");
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => errorEl.classList.remove("is-visible"), 2600);
     }
 
     socket.on("room:joined", ({ symbol }) => {
       mySymbol = symbol;
-      joinForm.style.display = "none";
+      joinForm.hidden = true;
+      arenaEl.hidden = false;
     });
 
     socket.on("room:state", (state) => {
-      errorEl.textContent = "";
+      renderRoster(state);
       renderBoard(state);
       renderStatus(state);
     });
 
     socket.on("error", ({ message }) => {
-      errorEl.textContent = message;
+      toast(message);
     });
 
     // ---- Dev live-reload ----------------------------------------------

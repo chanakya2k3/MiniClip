@@ -90,6 +90,7 @@ function createRoom(roomId) {
     turn: "X", // whose symbol moves next
     status: "LOBBY", // LOBBY -> IN_PROGRESS -> FINISHED
     winner: null, // 'X' | 'O' | 'DRAW' | null
+    winningLine: null, // [i, i, i] once someone wins
   };
   rooms.set(roomId, room);
   return room;
@@ -105,13 +106,17 @@ const WIN_LINES = [
   [0, 4, 8], [2, 4, 6],           // diagonals
 ];
 
+// Returns { winner, line } — the line comes back so the client can light
+// up the winning three cells without re-implementing the rules locally.
+// The client should never be the one deciding what "winning" looks like.
 function checkWinner(board) {
-  for (const [a, b, c] of WIN_LINES) {
+  for (const line of WIN_LINES) {
+    const [a, b, c] = line;
     if (board[a] && board[a] === board[b] && board[a] === board[c]) {
-      return board[a]; // 'X' or 'O'
+      return { winner: board[a], line }; // 'X' or 'O'
     }
   }
-  if (board.every((cell) => cell !== null)) return "DRAW";
+  if (board.every((cell) => cell !== null)) return { winner: "DRAW", line: null };
   return null; // game continues
 }
 
@@ -151,6 +156,7 @@ function getPlayerView(room, _playerId) {
     turn: room.turn,
     status: room.status,
     winner: room.winner,
+    winningLine: room.winningLine,
     players: room.players.map((p) => ({
       symbol: p.symbol,
       name: p.name,
@@ -249,7 +255,8 @@ io.on("connection", (socket) => {
     const result = checkWinner(room.board);
     if (result) {
       room.status = "FINISHED";
-      room.winner = result; // 'X' | 'O' | 'DRAW'
+      room.winner = result.winner; // 'X' | 'O' | 'DRAW'
+      room.winningLine = result.line; // [i, i, i] | null on a draw
       // This is also where you'd write match history to a DB, if you had one.
     } else {
       room.turn = room.turn === "X" ? "O" : "X";
@@ -266,6 +273,7 @@ io.on("connection", (socket) => {
     room.board = makeEmptyBoard();
     room.turn = "X";
     room.winner = null;
+    room.winningLine = null;
     room.status = "LOBBY";
     recomputeStatus(room);
     broadcastRoomState(room);
