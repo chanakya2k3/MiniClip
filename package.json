@@ -5,9 +5,13 @@
   "description": "Minimal server-authoritative MiniClip for learning the pattern",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "test": "node test-reconnect.js"
   },
   "dependencies": {
     "socket.io": "^4.7.5"
+  },
+  "devDependencies": {
+    "socket.io-client": "^4.7.5"
   }
 }

@@ -1,19 +1,45 @@
+/* Everything visual is driven by these. Change one, save, and the running
+   game restyles instantly — no reload, no lost turn. */
+:root {
+  --cell-size: 100px;
+  --cell-bg: #1b1b1f;
+  --cell-bg-hover: #2a2a31;
+  --cell-fg: #ffffff;
+  --cell-border: #3a3a44;
+  --accent: #4c8dff;
+}
+
 .cell {
-  width: 100px;
-  height: 100px;
-  font-size: 40px;
+  width: var(--cell-size);
+  height: var(--cell-size);
+  font-size: calc(var(--cell-size) * 0.4);
   display: flex;
   align-items: center;
   justify-content: center;
-  background: red;
-  color: white;
-  border: 2px solid #ccc;
+  background: var(--cell-bg);
+  color: var(--cell-fg);
+  border: 2px solid var(--cell-border);
+  border-radius: 8px;
   cursor: pointer;
   user-select: none;
+  transition: background 120ms ease, border-color 120ms ease;
 }
 
 .cell:hover {
-  background: #222; /* slightly lighter black on hover so clicks feel responsive */
+  background: var(--cell-bg-hover); /* immediate feedback so clicks feel responsive */
+}
+
+/* Server-driven, not guessed locally: set only when it's actually your move. */
+.cell.playable {
+  border-color: var(--accent);
+}
+
+.cell.taken {
+  cursor: default;
+}
+
+.cell.taken:hover {
+  background: var(--cell-bg);
 }
 
 body {
@@ -25,18 +51,22 @@ body {
 
 #board {
   display: grid;
-  grid-template-columns: repeat(3, 100px);
+  grid-template-columns: repeat(3, var(--cell-size));
   gap: 6px;
   justify-content: center;
   margin: 20px auto;
 }
 
-
-
 #status {
   font-size: 18px;
   margin: 10px 0;
   min-height: 24px;
+}
+
+#conn {
+  font-size: 14px;
+  color: #8a6d3b;
+  min-height: 20px;
 }
 
 #joinForm input {

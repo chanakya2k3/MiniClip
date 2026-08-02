@@ -3,41 +3,52 @@
 <head>
   <meta charset="UTF-8" />
   <title>MiniClip</title>
-  <link rel="stylesheet" href="style.css" />
+  <link rel="stylesheet" href="style.css" id="appStyles" />
 </head>
 <body>
   <h2>Tic-Tac-Toe — server-authoritative demo</h2>
 
   <div id="joinForm">
-    <input id="roomId" placeholder="room id (e.g. room1)" value="room1" />    
+    <input id="roomId" placeholder="room id (e.g. room1)" value="room1" />
     <input id="name" placeholder="your name" value="Player" />
     <button id="joinBtn">Join room</button>
   </div>
 
   <div id="status"></div>
+  <div id="conn"></div>
   <div id="board"></div>
   <button id="rematchBtn" style="display:none">Rematch</button>
   <div id="error"></div>
 
   <!-- Socket.io client served automatically by the socket.io server -->
-  <script src="http://localhost:3001/socket.io/socket.io.js"></script>
+  <script src="/socket.io/socket.io.js"></script>
   <script>
-    const socket = io("http://localhost:3001");
+    // Same-origin when served by server.js (http://localhost:3001), with a
+    // fallback for opening the file directly off disk.
+    const socket = location.protocol.startsWith("http")
+      ? io()
+      : io("http://localhost:3001");
 
     const boardEl = document.getElementById("board");
     const statusEl = document.getElementById("status");
+    const connEl = document.getElementById("conn");
     const errorEl = document.getElementById("error");
     const rematchBtn = document.getElementById("rematchBtn");
     const roomInput = document.getElementById("roomId");
     const nameInput = document.getElementById("name");
+    const joinForm = document.getElementById("joinForm");
 
     let mySymbol = null; // set once the server tells us, never assumed locally
 
     const STORAGE_KEYS = {
       playerId: "miniClipPlayerId",
       roomId: "miniClipRoomId",
+      name: "miniClipName",
     };
 
+    // sessionStorage, not localStorage, on purpose: it survives a reload
+    // (so a UI edit doesn't cost you your seat) but a second tab gets its
+    // own identity, which is how you play both sides while developing.
     function getOrCreatePlayerId() {
       let playerId = sessionStorage.getItem(STORAGE_KEYS.playerId);
       if (!playerId) {
@@ -47,57 +58,67 @@
       return playerId;
     }
 
-    function getStoredRoomId() {
-      return sessionStorage.getItem(STORAGE_KEYS.roomId);
-    }
-
-    function saveRoomId(roomId) {
-      sessionStorage.setItem(STORAGE_KEYS.roomId, roomId);
-    }
-
     function joinRoom(roomId, name) {
       if (!roomId) return;
-      saveRoomId(roomId);
+      sessionStorage.setItem(STORAGE_KEYS.roomId, roomId);
+      sessionStorage.setItem(STORAGE_KEYS.name, name);
       socket.emit("room:join", { roomId, name, playerId: getOrCreatePlayerId() });
     }
 
-    const playerId = getOrCreatePlayerId();
-    const storedRoomId = getStoredRoomId();
-    if (storedRoomId) {
-      roomInput.value = storedRoomId;
-    }
+    // Restore what we typed last time so a reload doesn't make us re-enter it.
+    const storedRoomId = sessionStorage.getItem(STORAGE_KEYS.roomId);
+    const storedName = sessionStorage.getItem(STORAGE_KEYS.name);
+    if (storedRoomId) roomInput.value = storedRoomId;
+    if (storedName) nameInput.value = storedName;
 
     document.getElementById("joinBtn").addEventListener("click", () => {
-      const roomId = roomInput.value.trim();
-      const name = nameInput.value.trim();
-      joinRoom(roomId, name || "Player");
+      joinRoom(roomInput.value.trim(), nameInput.value.trim() || "Player");
     });
 
+    // Fires on first connect AND on every socket.io auto-reconnect. Rejoining
+    // with the same playerId is what makes a refresh land back in the same seat.
     socket.on("connect", () => {
-      const roomId = getStoredRoomId();
-      const name = nameInput.value.trim() || "Player";
-      if (roomId) {
-        joinRoom(roomId, name);
-      }
+      const roomId = sessionStorage.getItem(STORAGE_KEYS.roomId);
+      if (roomId) joinRoom(roomId, nameInput.value.trim() || "Player");
+    });
+
+    socket.on("disconnect", () => {
+      connEl.textContent = "Disconnected — reconnecting...";
     });
 
     rematchBtn.addEventListener("click", () => {
       socket.emit("room:rematch");
     });
 
-    // Render 9 cells once; clicking sends an INTENT, not a result.
+    // ---- Rendering ----------------------------------------------------
+    // The 9 cells are created once and then patched in place. Rebuilding
+    // the DOM on every state message would throw away focus, hover and any
+    // CSS transition mid-flight — and it makes a style edit look like a
+    // flicker instead of an instant change.
+    const cells = [];
+    for (let i = 0; i < 9; i++) {
+      const div = document.createElement("div");
+      div.className = "cell";
+      div.dataset.index = String(i);
+      div.addEventListener("click", () => {
+        // We don't check whose turn it is here on purpose — let the
+        // server be the judge. Worst case it sends back an error.
+        socket.emit("game:action", { cellIndex: i });
+      });
+      boardEl.appendChild(div);
+      cells.push(div);
+    }
+
     function renderBoard(state) {
-      boardEl.innerHTML = "";
       state.board.forEach((cell, i) => {
-        const div = document.createElement("div");
-        div.className = "cell";
-        div.textContent = cell || "";
-        div.addEventListener("click", () => {
-          // We don't check whose turn it is here on purpose — let the
-          // server be the judge. Worst case it sends back an error.
-          socket.emit("game:action", { cellIndex: i });
-        });
-        boardEl.appendChild(div);
+        const el = cells[i];
+        const value = cell || "";
+        if (el.textContent !== value) el.textContent = value;
+        el.classList.toggle("taken", Boolean(cell));
+        el.classList.toggle(
+          "playable",
+          state.status === "IN_PROGRESS" && !cell && state.turn === mySymbol
+        );
       });
     }
 
@@ -108,18 +129,26 @@
       if (state.status === "LOBBY") {
         statusEl.textContent = `${label} — waiting for an opponent...`;
       } else if (state.status === "IN_PROGRESS") {
-        statusEl.textContent = `${label} — ${state.turn}'s turn`;
+        statusEl.textContent =
+          state.turn === mySymbol ? `${label} — your turn` : `${label} — ${state.turn}'s turn`;
       } else if (state.status === "FINISHED") {
         statusEl.textContent =
           state.winner === "DRAW" ? "Draw!" : `${state.winner} wins!`;
       }
+
+      // A player who dropped still holds their seat; say so rather than
+      // pretending the game ended.
+      const away = state.players.filter((p) => p.symbol !== mySymbol && !p.connected);
+      connEl.textContent = away.length
+        ? `${away.map((p) => p.name).join(", ")} disconnected — holding their seat...`
+        : "";
+
       rematchBtn.style.display = state.status === "FINISHED" ? "inline-block" : "none";
     }
 
-    // The server tells us directly which symbol is ours right after we
-    // join — we never try to guess it from shared room state.
     socket.on("room:joined", ({ symbol }) => {
       mySymbol = symbol;
+      joinForm.style.display = "none";
     });
 
     socket.on("room:state", (state) => {
@@ -130,6 +159,25 @@
 
     socket.on("error", ({ message }) => {
       errorEl.textContent = message;
+    });
+
+    // ---- Dev live-reload ----------------------------------------------
+    // A CSS change swaps the stylesheet under the running page: no reload,
+    // no socket churn, no state lost — the board you're staring at just
+    // restyles. Structural changes can't be hot-swapped, so we reload and
+    // let the playerId rejoin put us back in the same game.
+    socket.on("dev:css", ({ version }) => {
+      const link = document.getElementById("appStyles");
+      const fresh = link.cloneNode();
+      fresh.href = `style.css?v=${version}`;
+      // Only drop the old stylesheet once the new one has painted, so
+      // there's no unstyled frame in between.
+      fresh.addEventListener("load", () => link.remove(), { once: true });
+      link.parentNode.insertBefore(fresh, link.nextSibling);
+    });
+
+    socket.on("dev:reload", () => {
+      location.reload();
     });
   </script>
 </body>
