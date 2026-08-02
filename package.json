@@ -1,0 +1,13 @@
+{
+  "name": "MiniClip",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Minimal server-authoritative MiniClip for learning the pattern",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "socket.io": "^4.7.5"
+  }
+}

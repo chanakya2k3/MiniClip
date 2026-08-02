@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>MiniClip</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <h2>Tic-Tac-Toe — server-authoritative demo</h2>
+
+  <div id="joinForm">
+    <input id="roomId" placeholder="room id (e.g. room1)" value="room1" />    
+    <input id="name" placeholder="your name" value="Player" />
+    <button id="joinBtn">Join room</button>
+  </div>
+
+  <div id="status"></div>
+  <div id="board"></div>
+  <button id="rematchBtn" style="display:none">Rematch</button>
+  <div id="error"></div>
+
+  <!-- Socket.io client served automatically by the socket.io server -->
+  <script src="http://localhost:3001/socket.io/socket.io.js"></script>
+  <script>
+    const socket = io("http://localhost:3001");
+
+    const boardEl = document.getElementById("board");
+    const statusEl = document.getElementById("status");
+    const errorEl = document.getElementById("error");
+    const rematchBtn = document.getElementById("rematchBtn");
+    const roomInput = document.getElementById("roomId");
+    const nameInput = document.getElementById("name");
+
+    let mySymbol = null; // set once the server tells us, never assumed locally
+
+    const STORAGE_KEYS = {
+      playerId: "miniClipPlayerId",
+      roomId: "miniClipRoomId",
+    };
+
+    function getOrCreatePlayerId() {
+      let playerId = sessionStorage.getItem(STORAGE_KEYS.playerId);
+      if (!playerId) {
+        playerId = crypto.randomUUID();
+        sessionStorage.setItem(STORAGE_KEYS.playerId, playerId);
+      }
+      return playerId;
+    }
+
+    function getStoredRoomId() {
+      return sessionStorage.getItem(STORAGE_KEYS.roomId);
+    }
+
+    function saveRoomId(roomId) {
+      sessionStorage.setItem(STORAGE_KEYS.roomId, roomId);
+    }
+
+    function joinRoom(roomId, name) {
+      if (!roomId) return;
+      saveRoomId(roomId);
+      socket.emit("room:join", { roomId, name, playerId: getOrCreatePlayerId() });
+    }
+
+    const playerId = getOrCreatePlayerId();
+    const storedRoomId = getStoredRoomId();
+    if (storedRoomId) {
+      roomInput.value = storedRoomId;
+    }
+
+    document.getElementById("joinBtn").addEventListener("click", () => {
+      const roomId = roomInput.value.trim();
+      const name = nameInput.value.trim();
+      joinRoom(roomId, name || "Player");
+    });
+
+    socket.on("connect", () => {
+      const roomId = getStoredRoomId();
+      const name = nameInput.value.trim() || "Player";
+      if (roomId) {
+        joinRoom(roomId, name);
+      }
+    });
+
+    rematchBtn.addEventListener("click", () => {
+      socket.emit("room:rematch");
+    });
+
+    // Render 9 cells once; clicking sends an INTENT, not a result.
+    function renderBoard(state) {
+      boardEl.innerHTML = "";
+      state.board.forEach((cell, i) => {
+        const div = document.createElement("div");
+        div.className = "cell";
+        div.textContent = cell || "";
+        div.addEventListener("click", () => {
+          // We don't check whose turn it is here on purpose — let the
+          // server be the judge. Worst case it sends back an error.
+          socket.emit("game:action", { cellIndex: i });
+        });
+        boardEl.appendChild(div);
+      });
+    }
+
+    function renderStatus(state) {
+      const you = state.players.find((p) => p.symbol === mySymbol);
+      const label = you ? `You are ${you.symbol}` : "";
+
+      if (state.status === "LOBBY") {
+        statusEl.textContent = `${label} — waiting for an opponent...`;
+      } else if (state.status === "IN_PROGRESS") {
+        statusEl.textContent = `${label} — ${state.turn}'s turn`;
+      } else if (state.status === "FINISHED") {
+        statusEl.textContent =
+          state.winner === "DRAW" ? "Draw!" : `${state.winner} wins!`;
+      }
+      rematchBtn.style.display = state.status === "FINISHED" ? "inline-block" : "none";
+    }
+
+    // The server tells us directly which symbol is ours right after we
+    // join — we never try to guess it from shared room state.
+    socket.on("room:joined", ({ symbol }) => {
+      mySymbol = symbol;
+    });
+
+    socket.on("room:state", (state) => {
+      errorEl.textContent = "";
+      renderBoard(state);
+      renderStatus(state);
+    });
+
+    socket.on("error", ({ message }) => {
+      errorEl.textContent = message;
+    });
+  </script>
+</body>
+</html>
