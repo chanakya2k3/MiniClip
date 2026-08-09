@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>MINICLIP — insert coin</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="auth.css" />
+</head>
+<body>
+  <div class="backdrop" aria-hidden="true"><div class="stars" id="stars"></div></div>
+
+  <div class="auth-shell">
+    <a class="auth-brand" href="/">MINI<span>CLIP</span></a>
+
+    <main class="panel">
+      <h1 class="panel-title">INSERT COIN</h1>
+      <p class="panel-sub">Log in to save scores and claim a leaderboard slot.</p>
+
+      <div class="banner" id="banner" role="alert" aria-live="assertive"></div>
+
+      <form id="form" novalidate>
+        <div class="field" id="usernameField">
+          <label for="username">USERNAME</label>
+          <input
+            id="username" name="username" type="text"
+            autocomplete="username" spellcheck="false"
+            autocapitalize="off" required autofocus />
+        </div>
+
+        <div class="field" id="passwordField">
+          <label for="password">PASSWORD</label>
+          <input
+            id="password" name="password" type="password"
+            autocomplete="current-password" required />
+          <div class="hint" id="formHint"></div>
+        </div>
+
+        <button class="btn" id="submit" type="submit">LOG IN</button>
+      </form>
+
+      <div class="divider">OR</div>
+
+      <a class="btn btn-google" id="googleBtn" href="/api/auth/google">
+        <svg viewBox="0 0 48 48" aria-hidden="true">
+          <path fill="#EA4335" d="M24 9.5c3.5 0 6.6 1.2 9 3.6l6.7-6.7C35.6 2.6 30.2 0 24 0 14.6 0 6.4 5.4 2.5 13.2l7.8 6.1C12.2 13.2 17.6 9.5 24 9.5z"/>
+          <path fill="#4285F4" d="M46.1 24.6c0-1.6-.1-3.1-.4-4.6H24v9.1h12.4c-.5 2.9-2.2 5.4-4.7 7l7.6 5.9c4.4-4.1 6.8-10.1 6.8-17.4z"/>
+          <path fill="#FBBC05" d="M10.3 28.7c-.5-1.4-.8-2.9-.8-4.7s.3-3.3.8-4.7l-7.8-6.1C.9 16.5 0 20.1 0 24s.9 7.5 2.5 10.8l7.8-6.1z"/>
+          <path fill="#34A853" d="M24 48c6.5 0 11.9-2.1 15.9-5.8l-7.6-5.9c-2.1 1.4-4.8 2.3-8.3 2.3-6.4 0-11.8-3.7-13.7-8.9l-7.8 6.1C6.4 42.6 14.6 48 24 48z"/>
+        </svg>
+        SIGN IN WITH GOOGLE
+      </a>
+
+      <p class="panel-foot">
+        No account yet? <a href="signup.html" id="signupLink">Create one</a>
+      </p>
+    </main>
+  </div>
+
+  <script src="auth-client.js"></script>
+  <script>
+    const { api, setHint, setFieldState, setBanner, starfield, safeNext } = MiniAuth;
+    starfield('stars');
+
+    const form          = document.getElementById('form');
+    const banner        = document.getElementById('banner');
+    const usernameInput = document.getElementById('username');
+    const usernameField = document.getElementById('usernameField');
+    const passwordInput = document.getElementById('password');
+    const passwordField = document.getElementById('passwordField');
+    const formHint      = document.getElementById('formHint');
+    const submitBtn     = document.getElementById('submit');
+    const googleBtn     = document.getElementById('googleBtn');
+
+    const next = safeNext('/');
+    document.getElementById('signupLink').href = 'signup.html?next=' + encodeURIComponent(next);
+    googleBtn.href = '/api/auth/google?next=' + encodeURIComponent(next);
+
+    api('/api/auth/me').then(({ data }) => {
+      // Already logged in — no reason to show a login form.
+      if (data.user) { location.replace(next); return; }
+
+      if (!data.googleEnabled) {
+        googleBtn.classList.add('is-disabled');
+        googleBtn.removeAttribute('href');
+        googleBtn.title = 'Google sign-in is not configured on this server.';
+      }
+    });
+
+    form.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      setBanner(banner, '');
+      setHint(formHint, '');
+      setFieldState(usernameField, null);
+      setFieldState(passwordField, null);
+
+      const username = usernameInput.value.trim();
+      const password = passwordInput.value;
+
+      if (!username || !password) {
+        setBanner(banner, 'Enter a username and password.');
+        return;
+      }
+
+      submitBtn.disabled = true;
+      submitBtn.textContent = 'CHECKING…';
+
+      const { ok, data } = await api('/api/auth/login', {
+        method: 'POST',
+        body: { username, password },
+      });
+
+      if (ok) { location.href = next; return; }
+
+      // Note what's deliberately *not* done here: highlighting the username
+      // field on a bad username and the password field on a bad password.
+      // The server returns one indistinguishable error for both so it doesn't
+      // confirm which usernames exist — reconstructing that distinction in
+      // the UI would hand the information straight back.
+      if (data.error === 'invalid_credentials') {
+        setFieldState(usernameField, 'bad');
+        setFieldState(passwordField, 'bad');
+        passwordInput.value = '';
+        passwordInput.focus();
+      }
+
+      setBanner(banner, data.message || 'Could not log in.');
+      submitBtn.disabled = false;
+      submitBtn.textContent = 'LOG IN';
+    });
+
+    // The Google callback redirects here with ?error=… when the flow fails.
+    const oauthError = new URLSearchParams(location.search).get('error');
+    if (oauthError) setBanner(banner, oauthError);
+  </script>
+</body>
+</html>

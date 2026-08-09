@@ -1,0 +1,1161 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Flappy Duel — 2 Player Flappy Bird</title>
+<style>
+  @font-face {
+    font-family: 'PixelFont';
+    src: local('Courier New');
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --sky-top: #2e4d7a;
+    --sky-mid: #7d6fa3;
+    --sky-low: #e8b4a0;
+    --pipe-main: #5ec93f;
+    --pipe-light: #8ef05f;
+    --pipe-dark: #2b6b16;
+    --pipe-edge: #1a3d0d;
+    --ground: #7a8a35;
+    --ground-dark: #5c6828;
+    --water: #35507a;
+    --panel: #16182b;
+    --panel-edge: #05060d;
+    --cream: #fdf6e3;
+    --p1-glow: #ffd23f;
+    --p2-glow: #4fd8ff;
+  }
+
+  body {
+    font-family: 'Courier New', monospace;
+    background: #05060d;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    color: var(--cream);
+    overflow: hidden;
+  }
+
+  .cabinet {
+    position: relative;
+    width: 900px;
+    max-width: 96vw;
+    border: 6px solid var(--panel-edge);
+    border-radius: 10px;
+    background: var(--panel);
+    padding: 14px;
+    box-shadow: 0 0 0 3px #2a2d4a, 0 20px 60px rgba(0,0,0,0.6);
+  }
+
+  .title-row {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    padding: 2px 6px 12px;
+  }
+
+  .title-row h1 {
+    font-size: 20px;
+    letter-spacing: 2px;
+    color: var(--cream);
+    text-shadow: 3px 3px 0 var(--panel-edge);
+  }
+  .title-row h1 span { color: var(--p1-glow); }
+
+  .subtitle {
+    font-size: 11px;
+    letter-spacing: 1px;
+    color: #8b8fb5;
+  }
+  .subtitle a {
+    color: var(--pipe-light);
+    text-decoration: none;
+  }
+  .subtitle a:hover { color: var(--cream); }
+
+  canvas {
+    display: block;
+    width: 100%;
+    aspect-ratio: 3 / 2;
+    border-radius: 4px;
+    image-rendering: pixelated;
+    border: 3px solid var(--panel-edge);
+    background: var(--sky-mid);
+  }
+
+  .hud {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px 4px 0;
+    font-size: 12px;
+    letter-spacing: 1px;
+  }
+  .hud .p1 { color: var(--p1-glow); }
+  .hud .p2 { color: var(--p2-glow); }
+
+  /* Difficulty readout — the ramp is gradual, so it helps to see it move. */
+  .level {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 10px;
+    color: #8b8fb5;
+  }
+  .level-bar {
+    width: 90px;
+    height: 8px;
+    background: #05060d;
+    border: 2px solid #2a2d4a;
+    border-radius: 3px;
+    overflow: hidden;
+  }
+  .level-fill {
+    height: 100%;
+    width: 0%;
+    background: var(--pipe-main);
+    transition: width .25s linear, background .4s linear;
+  }
+
+  .overlay {
+    position: absolute;
+    inset: 14px;
+    top: 62px;
+    bottom: 14px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(5,6,13,0.82);
+    border-radius: 4px;
+    z-index: 5;
+  }
+  .overlay.hidden { display: none; }
+
+  .panel-box {
+    text-align: center;
+    width: 100%;
+    max-width: 520px;
+    padding: 20px;
+  }
+
+  .panel-box h2 {
+    font-size: 18px;
+    letter-spacing: 2px;
+    margin-bottom: 18px;
+    text-shadow: 2px 2px 0 var(--panel-edge);
+  }
+
+  .pickers {
+    display: flex;
+    justify-content: center;
+    gap: 40px;
+    margin-bottom: 22px;
+    flex-wrap: wrap;
+  }
+
+  .picker {
+    width: 190px;
+  }
+  .picker h3 { font-size: 12px; letter-spacing: 1px; margin-bottom: 10px; }
+  .picker.p1 h3 { color: var(--p1-glow); }
+  .picker.p2 h3 { color: var(--p2-glow); }
+
+  .swatches {
+    display: flex;
+    justify-content: center;
+    gap: 8px;
+    margin-bottom: 8px;
+  }
+  .swatch {
+    width: 30px; height: 30px;
+    border-radius: 6px;
+    border: 3px solid #2a2d4a;
+    cursor: pointer;
+    transition: transform .1s;
+  }
+  .swatch:hover { transform: scale(1.12); }
+  .swatch.selected { border-color: var(--cream); box-shadow: 0 0 0 2px var(--cream); }
+
+  .key-hint {
+    font-size: 10px;
+    color: #8b8fb5;
+    letter-spacing: 1px;
+  }
+
+  /* Two-window mode */
+  .mode-row {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 18px;
+  }
+  .link-btn {
+    font-family: inherit;
+    font-size: 11px;
+    letter-spacing: 2px;
+    padding: 9px 18px;
+    background: transparent;
+    color: var(--p2-glow);
+    border: 3px solid #2a5f7a;
+    border-radius: 6px;
+    cursor: pointer;
+  }
+  .link-btn:hover { background: #10283a; }
+  .link-btn:disabled { opacity: .5; cursor: default; }
+  .link-status {
+    font-size: 10px;
+    letter-spacing: 1px;
+    color: #8b8fb5;
+  }
+  .link-status.on { color: var(--pipe-light); }
+
+  /* The P2 window hides everything it doesn't own. */
+  body.guest .picker.p1,
+  body.guest .mode-row,
+  body.guest #startBtn,
+  body.guest #againBtn { display: none; }
+  body.guest .waiting { display: block; }
+  .waiting {
+    display: none;
+    font-size: 11px;
+    letter-spacing: 2px;
+    color: var(--p2-glow);
+    margin-top: 6px;
+  }
+
+  .start-btn, .again-btn {
+    font-family: inherit;
+    font-size: 13px;
+    letter-spacing: 2px;
+    padding: 12px 26px;
+    background: var(--pipe-main);
+    color: #0d2005;
+    border: 3px solid var(--pipe-edge);
+    border-radius: 6px;
+    cursor: pointer;
+    box-shadow: 0 4px 0 var(--pipe-edge);
+  }
+  .start-btn:active, .again-btn:active {
+    transform: translateY(3px);
+    box-shadow: none;
+  }
+
+  .result-line {
+    font-size: 15px;
+    margin-bottom: 18px;
+    letter-spacing: 1px;
+  }
+  .result-line.win-p1 { color: var(--p1-glow); }
+  .result-line.win-p2 { color: var(--p2-glow); }
+
+  .final-scores {
+    font-size: 11px;
+    color: #8b8fb5;
+    letter-spacing: 1px;
+    margin-bottom: 18px;
+  }
+
+  .controls-footer {
+    display: flex;
+    justify-content: center;
+    gap: 30px;
+    padding: 10px 4px 2px;
+    font-size: 10px;
+    color: #8b8fb5;
+    letter-spacing: 1px;
+  }
+</style>
+</head>
+<body>
+
+<div class="cabinet">
+  <div class="title-row">
+    <h1>FLAPPY <span>DUEL</span></h1>
+    <div class="subtitle"><a href="index.html">&#9664; ARCADE</a> &nbsp;·&nbsp; LOCAL 2-PLAYER</div>
+  </div>
+
+  <div style="position:relative;">
+    <canvas id="game" width="900" height="600"></canvas>
+
+    <div class="overlay" id="menuOverlay">
+      <div class="panel-box">
+        <h2>PICK YOUR BIRD</h2>
+        <div class="pickers">
+          <div class="picker p1">
+            <h3>PLAYER 1</h3>
+            <div class="swatches" data-player="1"></div>
+            <div class="key-hint">FLAP: SPACE</div>
+          </div>
+          <div class="picker p2">
+            <h3>PLAYER 2</h3>
+            <div class="swatches" data-player="2"></div>
+            <div class="key-hint" id="p2Hint">FLAP: ENTER</div>
+          </div>
+        </div>
+
+        <div class="mode-row">
+          <button class="link-btn" id="linkBtn">OPEN PLAYER 2 WINDOW</button>
+          <div class="link-status" id="linkStatus">SAME SCREEN — SPACE / ENTER</div>
+        </div>
+
+        <button class="start-btn" id="startBtn">START DUEL</button>
+        <div class="waiting" id="menuWaiting">WAITING FOR PLAYER 1…</div>
+      </div>
+    </div>
+
+    <div class="overlay hidden" id="overOverlay">
+      <div class="panel-box">
+        <div class="result-line" id="resultLine">RESULT</div>
+        <div class="final-scores" id="finalScores"></div>
+        <button class="again-btn" id="againBtn">PLAY AGAIN</button>
+        <div class="waiting" id="overWaiting">WAITING FOR PLAYER 1…</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="hud">
+    <div class="p1" id="p1score">P1 SCORE: 0</div>
+    <div class="level">
+      <span id="levelLabel">LVL 1</span>
+      <div class="level-bar"><div class="level-fill" id="levelFill"></div></div>
+    </div>
+    <div class="p2" id="p2score">P2 SCORE: 0</div>
+  </div>
+
+  <div class="controls-footer">
+    <span>Own window: SPACE to flap</span>
+    <span>Same screen: SPACE / ENTER</span>
+    <span>Last bird flying wins</span>
+  </div>
+</div>
+
+<script>
+(function(){
+  const canvas = document.getElementById('game');
+  const ctx = canvas.getContext('2d');
+  const W = canvas.width, H = canvas.height;
+
+  const COLORS = [
+    { name: 'yellow', body: '#f5d13f', belly: '#fff3c4', beak: '#e0552b' },
+    { name: 'red',    body: '#e0503a', belly: '#ffcfc0', beak: '#7a2b1a' },
+    { name: 'blue',   body: '#4f9ee0', belly: '#dbeeff', beak: '#e08a2b' },
+    { name: 'green',  body: '#6fbf4a', belly: '#e6ffd6', beak: '#e08a2b' },
+    { name: 'purple', body: '#a679d6', belly: '#f0e3ff', beak: '#e0552b' },
+  ];
+
+  let p1Color = 0, p2Color = 1;
+
+  // ---------- Two-window link ----------
+  // Each player can take their own window and press SPACE. The P1 window owns
+  // the simulation and streams snapshots; the P2 window draws what it is sent
+  // and posts its flaps back. postMessage between opener and popup is used
+  // rather than BroadcastChannel because it also works off file://, where
+  // every document has an opaque origin.
+  const SEAT = new URLSearchParams(location.search).get('seat') === '2' ? 1 : 0;
+  const IS_GUEST = SEAT === 1 && !!window.opener;
+  let peer = IS_GUEST ? window.opener : null;
+  let linked = false;   // true once both windows have said hello
+
+  function post(msg) {
+    if (!peer || peer.closed) return;
+    msg.fd = 1;                      // tag so stray messages are ignored
+    try { peer.postMessage(msg, '*'); } catch (e) { /* window went away */ }
+  }
+
+  const swatchWrap1 = document.querySelector('.swatches[data-player="1"]');
+  const swatchWrap2 = document.querySelector('.swatches[data-player="2"]');
+
+  function buildSwatches(wrap, selectedIdx, onPick) {
+    wrap.innerHTML = '';
+    COLORS.forEach((c, i) => {
+      const el = document.createElement('div');
+      el.className = 'swatch' + (i === selectedIdx ? ' selected' : '');
+      el.style.background = c.body;
+      el.addEventListener('click', () => onPick(i));
+      wrap.appendChild(el);
+    });
+  }
+  function refreshSwatches() {
+    buildSwatches(swatchWrap1, p1Color, (i) => { p1Color = i; refreshSwatches(); });
+    buildSwatches(swatchWrap2, p2Color, (i) => {
+      p2Color = i;
+      refreshSwatches();
+      if (IS_GUEST) post({ t: 'color', color: i });   // tell the host our bird
+    });
+  }
+  refreshSwatches();
+
+  // ---------- Game constants ----------
+  const GRAVITY = 1500;       // px/s^2
+  const FLAP_VELOCITY = -420; // px/s
+  const PIPE_WIDTH = 78;
+  const GROUND_H = 70;
+  const BIRD_R = 16;
+
+  // Difficulty envelope. Every value eases from its EASY figure to its HARD
+  // figure across the ramp — no thresholds, so there is never a step change.
+  const GAP_EASY = 196, GAP_HARD = 124;        // vertical opening
+  const SPEED_EASY = 190, SPEED_HARD = 350;    // px/s scroll
+  const SPACING_EASY = 330, SPACING_HARD = 240;// px between pipes
+  const RAMP_SCORE = 26;      // score at which the ramp is effectively maxed
+  const RAMP_SECONDS = 110;   // ...and the same for time survived
+
+  // How far the opponent's bird recedes while the two overlap.
+  const BLUR_MAX = 6;         // px of blur at full overlap
+  const GHOST_FADE = 0.62;    // alpha removed at full overlap
+
+  const lerp = (a, b, t) => a + (b - a) * t;
+  const clamp = (v, lo, hi) => v < lo ? lo : (v > hi ? hi : v);
+
+  let state = 'menu'; // menu | playing | dying | over
+  let birds, pipes, elapsed, score1, score2, cloudOffset, worldScroll, winner;
+  let diff, diffTarget, shake, overTimer, blurAmount, focusIdx;
+  let particles, floaters;
+  let lastGapCenter, lastBand, prevBand;
+  let evOut = [];   // one-shot effects to replay in the other window
+  // Only worth recording when there is another window to drain the queue.
+  const emit = (e) => { if (linked) evOut.push(e); };
+
+  function resetGame() {
+    birds = [
+      makeBird(W*0.36, H*0.4, p1Color),
+      makeBird(W*0.36, H*0.4 + 6, p2Color),
+    ];
+    // The ramp values below are read by makePipe, so difficulty has to be
+    // zeroed before the opening pipes are laid out.
+    diff = 0; diffTarget = 0;
+    elapsed = 0; score1 = 0; score2 = 0; winner = null;
+    cloudOffset = 0; worldScroll = 0; shake = 0; overTimer = 0;
+    blurAmount = 0; focusIdx = 0;
+    particles = []; floaters = [];
+    lastGapCenter = null; lastBand = -1; prevBand = -1;
+
+    pipes = [];
+    let x = W + 140;
+    for (let i = 0; i < 5; i++) {
+      pipes.push(makePipe(x));
+      x += SPACING_EASY;
+    }
+    updateHud();
+  }
+
+  function makeBird(x, y, colorIdx) {
+    return {
+      x, y, vy: 0, alive: true, colorIdx,
+      flapAnim: 0, wingPhase: Math.random() * Math.PI * 2,
+      tilt: 0, spin: 0, fade: 1,
+    };
+  }
+
+  // ---------- Difficulty ----------
+  // Score and clock both feed the ramp so a cagey duel still speeds up, and
+  // smoothstep keeps the ends gentle instead of linear-and-abrupt.
+  function difficultyTarget() {
+    const best = Math.max(score1, score2);
+    const raw = clamp(0.65 * (best / RAMP_SCORE) + 0.35 * (elapsed / RAMP_SECONDS), 0, 1);
+    return raw * raw * (3 - 2 * raw);
+  }
+  const curGap     = () => lerp(GAP_EASY, GAP_HARD, diff);
+  const curSpeed   = () => lerp(SPEED_EASY, SPEED_HARD, diff);
+  const curSpacing = () => lerp(SPACING_EASY, SPACING_HARD, diff);
+
+  // ---------- Pipes ----------
+  // Pure Math.random() drifts into runs of near-identical gaps. Instead we
+  // draw a handful of candidates and keep the one that moves furthest from
+  // the last gap without exceeding what a bird can actually climb in the
+  // time it takes the next pipe to arrive — unpredictable but never unfair.
+  function bandOf(c, minC, maxC) {
+    return Math.min(2, Math.floor(((c - minC) / Math.max(1, maxC - minC)) * 3));
+  }
+
+  function makePipe(x) {
+    const gap = curGap();
+    const margin = 56;
+    const minC = margin + gap / 2;
+    const maxC = (H - GROUND_H) - margin - gap / 2;
+    if (lastGapCenter === null) lastGapCenter = (minC + maxC) / 2;
+
+    const travel = curSpacing() / curSpeed();   // seconds between pipes
+    const reach = Math.max(110, travel * 300);  // px a bird can cover in that time
+
+    let best = lastGapCenter, bestScore = -Infinity;
+    for (let i = 0; i < 10; i++) {
+      const c = minC + Math.random() * (maxC - minC);
+      const d = Math.abs(c - lastGapCenter);
+      let s = Math.min(d, reach) - Math.max(0, d - reach) * 3;
+      const band = bandOf(c, minC, maxC);
+      if (band === lastBand && band === prevBand) s -= 400; // no three-in-a-lane
+      s += Math.random() * 25;                              // break ties randomly
+      if (s > bestScore) { bestScore = s; best = c; }
+    }
+
+    prevBand = lastBand;
+    lastBand = bandOf(best, minC, maxC);
+    lastGapCenter = best;
+    // The gap is stored per pipe: a pipe keeps the opening it was born with,
+    // so the ramp can't shrink a pipe the birds are already flying through.
+    return { x, gapCenter: best, gap, scored1: false, scored2: false };
+  }
+
+  // ---------- Input ----------
+  // SPACE always means "my bird". In two-window mode that is the only key
+  // each player needs; on one screen ENTER is still Player 2's.
+  window.addEventListener('keydown', (e) => {
+    if (e.code === 'Space') {
+      e.preventDefault();
+      if (IS_GUEST) post({ t: 'flap' }); else flap(0);
+    }
+    if (e.code === 'Enter') {
+      e.preventDefault();
+      if (IS_GUEST) post({ t: 'flap' });
+      else if (!linked) flap(1);     // the P2 window owns that bird once linked
+    }
+  });
+  function flap(idx) {
+    if (state !== 'playing') return;
+    const b = birds[idx];
+    if (!b.alive) return;
+    b.vy = FLAP_VELOCITY;
+    b.flapAnim = 1;
+    // On one screen, whoever flapped last owns the foreground while the
+    // birds overlap. (In two-window mode each window decides for itself.)
+    focusIdx = idx;
+    puff(b.x - 10, b.y + 8, '#ffffff', 4, 40);
+    emit({ k: 'f', x: b.x - 10, y: b.y + 8 });
+  }
+
+  // ---------- Effects ----------
+  function puff(x, y, color, count, spread) {
+    spread = spread || 90;
+    for (let i = 0; i < count; i++) {
+      const a = Math.random() * Math.PI * 2;
+      const sp = Math.random() * spread;
+      particles.push({
+        x, y, vx: Math.cos(a) * sp - 40, vy: Math.sin(a) * sp,
+        life: 0.5 + Math.random() * 0.4, t: 0,
+        size: 2 + Math.random() * 3, color,
+      });
+    }
+  }
+  function floater(x, y, text, color) {
+    floaters.push({ x, y, text, color, t: 0, life: 0.9 });
+  }
+
+  // ---------- Update ----------
+  let lastTime = null;
+
+  function update(dt) {
+    const running = state === 'playing';
+    if (running) elapsed += dt;
+
+    // Low-pass the ramp: score arrives in whole numbers, this turns each
+    // bump into a glide rather than a lurch.
+    diffTarget = difficultyTarget();
+    diff += (diffTarget - diff) * Math.min(1, dt * 1.2);
+
+    const speed = curSpeed();
+    worldScroll += speed * dt;
+    cloudOffset -= dt * 15;
+    shake = Math.max(0, shake - dt * 60);
+
+    birds.forEach((b, idx) => {
+      b.vy += GRAVITY * dt;
+      b.y += b.vy * dt;
+      b.flapAnim = Math.max(0, b.flapAnim - dt * 4);
+      b.wingPhase += dt * (7 + b.flapAnim * 26);
+
+      if (!b.alive) {
+        // Death tumble: keep falling and spinning, then settle on the ground.
+        b.spin += dt * 7;
+        if (b.y + BIRD_R > H - GROUND_H) {
+          b.y = H - GROUND_H - BIRD_R;
+          b.vy = 0;
+        }
+        b.fade = Math.max(0.25, b.fade - dt * 0.9);
+        return;
+      }
+
+      // Smoothed tilt reads much better than snapping to velocity.
+      const target = clamp(b.vy / 500, -0.5, 0.9);
+      b.tilt += (target - b.tilt) * Math.min(1, dt * 12);
+
+      if (b.y - BIRD_R < 0) { b.y = BIRD_R; b.vy = 0; }
+      if (b.y + BIRD_R > H - GROUND_H) {
+        b.y = H - GROUND_H - BIRD_R;
+        killBird(idx);
+      }
+    });
+
+    pipes.forEach(p => { p.x -= speed * dt; });
+
+    // Recycle off-screen pipes at the spacing difficulty currently calls for.
+    while (pipes.length && pipes[0].x < -PIPE_WIDTH - 40) {
+      const maxX = Math.max.apply(null, pipes.map(p => p.x));
+      pipes.shift();
+      pipes.push(makePipe(maxX + curSpacing()));
+    }
+
+    if (running) {
+      birds.forEach((b, idx) => {
+        if (!b.alive) return;
+        pipes.forEach(p => {
+          const withinX = b.x + BIRD_R > p.x && b.x - BIRD_R < p.x + PIPE_WIDTH;
+          if (withinX) {
+            const topEnd = p.gapCenter - p.gap / 2;
+            const botStart = p.gapCenter + p.gap / 2;
+            if (b.y - BIRD_R < topEnd || b.y + BIRD_R > botStart) {
+              killBird(idx);
+            }
+          }
+          const key = idx === 0 ? 'scored1' : 'scored2';
+          if (!p[key] && p.x + PIPE_WIDTH < b.x) {
+            p[key] = true;
+            if (idx === 0) score1++; else score2++;
+            floater(b.x + 6, b.y - 26, '+1', idx === 0 ? '#ffd23f' : '#4fd8ff');
+          }
+        });
+      });
+    }
+
+    updateOverlapBlur(dt);
+    updateEffects(dt);
+    updateHud();
+
+    if (running && birds.filter(b => b.alive).length <= 1) {
+      state = 'dying';
+      overTimer = 0.9;   // let the death tumble play before the panel drops
+    }
+    if (state === 'dying') {
+      overTimer -= dt;
+      if (overTimer <= 0) endGame();
+    }
+  }
+
+  // When the birds overlap, the opponent's bird is pushed back visually so
+  // your own stays readable. In two-window mode "opponent" is exact — it is
+  // whichever bird this window does not own. On one shared screen there is no
+  // per-player view, so the bird that flapped most recently keeps focus and
+  // the other one gives way. Strength tracks how deeply they overlap, so the
+  // effect fades in and back out instead of popping.
+  function updateOverlapBlur(dt) {
+    const a = birds[0], b = birds[1];
+    let target = 0;
+    if (a.alive && b.alive) {
+      const dist = Math.hypot(a.x - b.x, a.y - b.y);
+      const touch = BIRD_R * 2;
+      if (dist < touch) target = clamp((touch - dist) / (touch * 0.55), 0, 1);
+    }
+    blurAmount += (target - blurAmount) * Math.min(1, dt * 14);
+    if (blurAmount < 0.01) blurAmount = 0;
+  }
+
+  function updateEffects(dt) {
+    for (let i = particles.length - 1; i >= 0; i--) {
+      const p = particles[i];
+      p.t += dt;
+      if (p.t >= p.life) { particles.splice(i, 1); continue; }
+      p.x += p.vx * dt;
+      p.y += p.vy * dt;
+      p.vy += 220 * dt;
+    }
+    for (let i = floaters.length - 1; i >= 0; i--) {
+      const f = floaters[i];
+      f.t += dt;
+      if (f.t >= f.life) { floaters.splice(i, 1); continue; }
+      f.y -= 34 * dt;
+    }
+  }
+
+  function updateHud() {
+    // In two-window mode each window marks the seat it is playing.
+    const mine = (IS_GUEST || linked) ? SEAT : -1;
+    document.getElementById('p1score').textContent =
+      'P1 SCORE: ' + score1 + (mine === 0 ? '  (YOU)' : '');
+    document.getElementById('p2score').textContent =
+      'P2 SCORE: ' + score2 + (mine === 1 ? '  (YOU)' : '');
+    const lvl = 1 + Math.floor(diff * 9.99);
+    document.getElementById('levelLabel').textContent = 'LVL ' + lvl;
+    const fill = document.getElementById('levelFill');
+    fill.style.width = (diff * 100).toFixed(1) + '%';
+    fill.style.background = diff < 0.4 ? '#5ec93f' : (diff < 0.75 ? '#ffd23f' : '#e0503a');
+  }
+
+  function killBird(idx) {
+    const b = birds[idx];
+    if (!b.alive) return;
+    b.alive = false;
+    b.vy = Math.min(b.vy, -200);   // small pop before the fall
+    b.spin = 0;
+    shake = 14;
+    puff(b.x, b.y, COLORS[b.colorIdx].body, 16, 170);
+    emit({ k: 'd', x: b.x, y: b.y, c: b.colorIdx });
+  }
+
+  function endGame() {
+    state = 'over';
+    const alive = birds.filter(b => b.alive);
+    const resultLine = document.getElementById('resultLine');
+    resultLine.className = 'result-line';
+    if (alive.length === 1) {
+      const winnerIdx = birds.indexOf(alive[0]);
+      winner = winnerIdx;
+      resultLine.textContent = (winnerIdx === 0 ? 'PLAYER 1 WINS!' : 'PLAYER 2 WINS!');
+      resultLine.classList.add(winnerIdx === 0 ? 'win-p1' : 'win-p2');
+    } else {
+      resultLine.textContent = "IT'S A TIE!";
+    }
+    document.getElementById('finalScores').textContent =
+      'P1 ' + score1 + '  ·  P2 ' + score2 + '  ·  REACHED LVL ' + (1 + Math.floor(diff * 9.99));
+    document.getElementById('overOverlay').classList.remove('hidden');
+  }
+
+  // ---------- Draw ----------
+  const stars = [];
+  for (let i = 0; i < 70; i++) {
+    stars.push({
+      x: Math.random() * W,
+      y: Math.random() * H * 0.55,
+      s: Math.random() < 0.8 ? 2 : 3,
+      tw: Math.random() * Math.PI * 2,
+    });
+  }
+
+  function drawSky(time) {
+    const g = ctx.createLinearGradient(0, 0, 0, H - GROUND_H);
+    g.addColorStop(0, '#2e4d7a');
+    g.addColorStop(0.45, '#7d6fa3');
+    g.addColorStop(0.8, '#e8b4a0');
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, W, H - GROUND_H);
+
+    // stars — fade out toward the warm part of the sky
+    stars.forEach(st => {
+      const fade = 1 - st.y / (H * 0.6);
+      const tw = 0.55 + 0.45 * Math.sin(time * 2 + st.tw);
+      ctx.globalAlpha = clamp(fade * tw, 0, 1) * 0.85;
+      ctx.fillStyle = '#fff8e7';
+      ctx.fillRect(st.x | 0, st.y | 0, st.s, st.s);
+    });
+    ctx.globalAlpha = 1;
+
+    // moon with a soft halo
+    ctx.fillStyle = 'rgba(255,250,235,0.10)';
+    ctx.beginPath(); ctx.arc(W * 0.82, H * 0.16, 52, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = 'rgba(255,250,235,0.9)';
+    ctx.beginPath(); ctx.arc(W * 0.82, H * 0.16, 34, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = 'rgba(232,180,160,0.35)';
+    ctx.beginPath(); ctx.arc(W * 0.82 - 9, H * 0.16 + 7, 6, 0, Math.PI * 2);
+    ctx.arc(W * 0.82 + 12, H * 0.16 - 6, 4, 0, Math.PI * 2); ctx.fill();
+
+    ctx.fillStyle = 'rgba(255,190,190,0.35)';
+    for (let i = 0; i < 6; i++) {
+      let cx = ((i * 260 + cloudOffset) % (W + 300)) - 150;
+      let cy = H * 0.52 + (i % 3) * 22;
+      drawCloud(cx, cy, 60 + (i % 3) * 20);
+    }
+
+    // parallax ridges: far ones creep, near ones keep pace with the pipes
+    drawRidge(worldScroll * 0.10, H - GROUND_H - 34, 26, 'rgba(58,54,96,0.55)', 190);
+    drawRidge(worldScroll * 0.22, H - GROUND_H - 8, 34, 'rgba(38,36,68,0.75)', 130);
+  }
+
+  function drawRidge(offset, baseY, amp, color, period) {
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.moveTo(0, H);
+    for (let x = 0; x <= W; x += 10) {
+      const y = baseY
+        - Math.sin((x + offset) / period) * amp
+        - Math.sin((x + offset) / (period * 0.41)) * amp * 0.4;
+      ctx.lineTo(x, y);
+    }
+    ctx.lineTo(W, H);
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  function drawCloud(cx, cy, size) {
+    ctx.beginPath();
+    ctx.ellipse(cx, cy, size, size * 0.35, 0, 0, Math.PI * 2);
+    ctx.ellipse(cx + size * 0.5, cy - size * 0.15, size * 0.5, size * 0.28, 0, 0, Math.PI * 2);
+    ctx.ellipse(cx - size * 0.5, cy - size * 0.1, size * 0.4, size * 0.25, 0, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  function drawGround() {
+    ctx.fillStyle = '#35507a';
+    ctx.fillRect(0, H - GROUND_H - 14, W, 14);
+    // water glints, scrolling with the world
+    ctx.fillStyle = 'rgba(180,220,255,0.25)';
+    for (let x = -(worldScroll * 0.5 % 60); x < W; x += 60) {
+      ctx.fillRect(x, H - GROUND_H - 10, 18, 3);
+    }
+    ctx.fillStyle = '#7a8a35';
+    ctx.fillRect(0, H - GROUND_H, W, GROUND_H);
+    ctx.fillStyle = '#5c6828';
+    for (let x = -(worldScroll % 20); x < W; x += 20) {
+      ctx.fillRect(x, H - GROUND_H, 10, 8);
+    }
+    ctx.fillStyle = 'rgba(0,0,0,0.18)';
+    for (let x = -(worldScroll * 0.6 % 44); x < W; x += 44) {
+      ctx.fillRect(x, H - GROUND_H + 26, 22, 5);
+    }
+  }
+
+  function drawPipe(p) {
+    const topH = p.gapCenter - p.gap / 2;
+    const botY = p.gapCenter + p.gap / 2;
+    const botH = (H - GROUND_H) - botY;
+
+    drawPipeSegment(p.x, 0, PIPE_WIDTH, topH, true);
+    drawPipeSegment(p.x, botY, PIPE_WIDTH, botH, false);
+  }
+
+  function drawPipeSegment(x, y, w, h, isTop) {
+    ctx.fillStyle = '#5ec93f';
+    ctx.fillRect(x, y, w, h);
+    ctx.fillStyle = '#8ef05f';
+    ctx.fillRect(x + 8, y, 10, h);
+    ctx.fillStyle = '#2b6b16';
+    ctx.fillRect(x + w - 16, y, 16, h);
+    ctx.strokeStyle = '#1a3d0d';
+    ctx.lineWidth = 3;
+    ctx.strokeRect(x + 1.5, y, w - 3, h);
+
+    const capH = 26;
+    const capY = isTop ? y + h - capH : y;
+    ctx.fillStyle = '#5ec93f';
+    ctx.fillRect(x - 6, capY, w + 12, capH);
+    ctx.fillStyle = '#8ef05f';
+    ctx.fillRect(x + 2, capY, 12, capH);
+    ctx.fillStyle = '#2b6b16';
+    ctx.fillRect(x + w - 10, capY, 16, capH);
+    ctx.strokeStyle = '#1a3d0d';
+    ctx.strokeRect(x - 4.5, capY, w + 9, capH);
+  }
+
+  // Birds are painted into an off-screen sprite first. That lets a blurred
+  // bird be blurred once, as a whole sprite, instead of blurring each of the
+  // half-dozen fills separately (which smears them apart and looks wrong).
+  const SPRITE = 96, SPRITE_HALF = SPRITE / 2;
+  const spriteCv = document.createElement('canvas');
+  spriteCv.width = spriteCv.height = SPRITE;
+  const sctx = spriteCv.getContext('2d');
+  const SUPPORTS_FILTER = typeof ctx.filter === 'string';
+
+  function paintBird(g, b, cx, cy) {
+    const c = COLORS[b.colorIdx];
+    const flap = Math.sin(b.wingPhase);
+    g.save();
+    g.translate(cx, cy);
+    g.rotate(b.alive ? b.tilt : b.spin);
+
+    // tail
+    g.fillStyle = c.body;
+    g.beginPath();
+    g.moveTo(-BIRD_R + 2, -3);
+    g.lineTo(-BIRD_R - 9, -8 + flap * 2);
+    g.lineTo(-BIRD_R - 7, 4);
+    g.closePath();
+    g.fill();
+
+    // far wing
+    g.fillStyle = c.beak;
+    g.globalAlpha = 0.45;
+    g.beginPath();
+    g.ellipse(-6, -1 - flap * 5, 9, 6, -0.3 - flap * 0.3, 0, Math.PI * 2);
+    g.fill();
+    g.globalAlpha = 1;
+
+    // body
+    g.fillStyle = c.body;
+    g.beginPath();
+    g.ellipse(0, 0, BIRD_R, BIRD_R * 0.8, 0, 0, Math.PI * 2);
+    g.fill();
+
+    // belly
+    g.fillStyle = c.belly;
+    g.beginPath();
+    g.ellipse(2, 5, BIRD_R * 0.55, BIRD_R * 0.4, 0, 0, Math.PI * 2);
+    g.fill();
+
+    // near wing — sweeps through the flap cycle
+    g.fillStyle = c.belly;
+    g.beginPath();
+    g.ellipse(-4, 2 + flap * 6, 10, 6.5 - Math.abs(flap) * 2, -0.3 + flap * 0.5, 0, Math.PI * 2);
+    g.fill();
+    g.strokeStyle = 'rgba(0,0,0,0.25)';
+    g.lineWidth = 1.5;
+    g.stroke();
+
+    // eye
+    g.fillStyle = '#fdf6e3';
+    g.beginPath(); g.arc(7, -6, 4.2, 0, Math.PI * 2); g.fill();
+    g.fillStyle = '#1a1a1a';
+    g.beginPath(); g.arc(b.alive ? 8.2 : 7, -6, 2.4, 0, Math.PI * 2); g.fill();
+
+    // beak
+    g.fillStyle = c.beak;
+    g.beginPath();
+    g.moveTo(BIRD_R - 2, -2);
+    g.lineTo(BIRD_R + 9, 1);
+    g.lineTo(BIRD_R - 2, 5);
+    g.closePath();
+    g.fill();
+
+    g.restore();
+  }
+
+  // `ghost` is 0..1 — how far this bird should recede. It fades the bird out
+  // and, where the browser supports it, softens it with a canvas blur.
+  function drawBird(b, ghost) {
+    const base = b.alive ? 1 : b.fade;
+    ctx.globalAlpha = base * (1 - GHOST_FADE * ghost);
+
+    if (ghost > 0.02 && SUPPORTS_FILTER) {
+      // Painted to an off-screen sprite first so the blur is applied once to
+      // the whole bird, rather than smearing each fill apart on its own.
+      sctx.clearRect(0, 0, SPRITE, SPRITE);
+      paintBird(sctx, b, SPRITE_HALF, SPRITE_HALF);
+      ctx.save();
+      ctx.filter = 'blur(' + (ghost * BLUR_MAX).toFixed(2) + 'px)';
+      ctx.drawImage(spriteCv, b.x - SPRITE_HALF, b.y - SPRITE_HALF);
+      ctx.restore();
+      ctx.filter = 'none';
+    } else {
+      paintBird(ctx, b, b.x, b.y);
+    }
+
+    ctx.globalAlpha = 1;
+  }
+
+  function drawEffects() {
+    particles.forEach(p => {
+      ctx.globalAlpha = clamp(1 - p.t / p.life, 0, 1);
+      ctx.fillStyle = p.color;
+      ctx.fillRect(p.x, p.y, p.size, p.size);
+    });
+    ctx.globalAlpha = 1;
+
+    ctx.font = 'bold 18px "Courier New", monospace';
+    ctx.textAlign = 'center';
+    floaters.forEach(f => {
+      ctx.globalAlpha = clamp(1 - f.t / f.life, 0, 1);
+      ctx.fillStyle = '#05060d';
+      ctx.fillText(f.text, f.x + 2, f.y + 2);
+      ctx.fillStyle = f.color;
+      ctx.fillText(f.text, f.x, f.y);
+    });
+    ctx.globalAlpha = 1;
+    ctx.textAlign = 'left';
+  }
+
+  function render(time) {
+    ctx.save();
+    if (shake > 0.5) {
+      ctx.translate((Math.random() - 0.5) * shake, (Math.random() - 0.5) * shake);
+    }
+
+    drawSky(time);
+    pipes.forEach(drawPipe);
+    drawGround();
+    drawEffects();
+
+    // The receding bird goes down first so the crisp one sits cleanly on top.
+    const dim = opponentIndex();
+    const order = blurAmount > 0 ? [dim, 1 - dim] : [0, 1];
+    order.forEach(i => drawBird(birds[i], i === dim ? blurAmount : 0));
+
+    ctx.restore();
+  }
+
+  // Which bird is "theirs" from this window's point of view.
+  function opponentIndex() {
+    return (IS_GUEST || linked) ? 1 - SEAT : 1 - focusIdx;
+  }
+
+  // ---------- Snapshot sync ----------
+  // Only the fields the renderer actually reads travel between windows, so a
+  // frame is a couple of hundred bytes even with a screen full of pipes.
+  function snapshot() {
+    const snap = {
+      t: 'sync',
+      st: state,
+      b: birds.map(b => ({
+        x: Math.round(b.x * 10) / 10, y: Math.round(b.y * 10) / 10,
+        tilt: Math.round(b.tilt * 100) / 100, spin: Math.round(b.spin * 100) / 100,
+        wingPhase: Math.round(b.wingPhase * 100) / 100,
+        alive: b.alive, fade: Math.round(b.fade * 100) / 100, colorIdx: b.colorIdx,
+      })),
+      p: pipes.map(p => ({
+        x: Math.round(p.x * 10) / 10,
+        gapCenter: Math.round(p.gapCenter),
+        gap: Math.round(p.gap),
+      })),
+      s1: score1, s2: score2, d: diff,
+      ws: worldScroll, co: cloudOffset, sh: shake, bl: blurAmount,
+      res: state === 'over' ? {
+        text: document.getElementById('resultLine').textContent,
+        cls: document.getElementById('resultLine').className,
+        finals: document.getElementById('finalScores').textContent,
+      } : null,
+      ev: evOut,
+    };
+    evOut = [];
+    return snap;
+  }
+
+  function applySnapshot(m) {
+    birds = m.b; pipes = m.p;
+    score1 = m.s1; score2 = m.s2; diff = m.d;
+    worldScroll = m.ws; cloudOffset = m.co; shake = m.sh; blurAmount = m.bl;
+
+    (m.ev || []).forEach(e => {
+      if (e.k === 'f') puff(e.x, e.y, '#ffffff', 4, 40);
+      else if (e.k === 'd') puff(e.x, e.y, COLORS[e.c].body, 16, 170);
+    });
+
+    if (m.st !== state) {
+      state = m.st;
+      const menu = document.getElementById('menuOverlay');
+      const over = document.getElementById('overOverlay');
+      menu.classList.toggle('hidden', state !== 'menu');
+      over.classList.toggle('hidden', state !== 'over');
+    }
+    if (m.res) {
+      const rl = document.getElementById('resultLine');
+      rl.className = m.res.cls;
+      rl.textContent = m.res.text;
+      document.getElementById('finalScores').textContent = m.res.finals;
+    }
+    updateHud();
+  }
+
+  window.addEventListener('message', (e) => {
+    const m = e.data;
+    if (!m || m.fd !== 1) return;   // ignore anything that isn't ours
+
+    if (IS_GUEST) {
+      if (m.t === 'bye') { linked = false; setLinkUi(); return; }
+      // Any traffic at all means the host is there — don't hang on a lost
+      // welcome, since snapshots alone are enough to play from.
+      if (!linked) { linked = true; setLinkUi(); }
+      if (m.t === 'sync') applySnapshot(m);
+      return;
+    }
+
+    // Host side
+    if (m.t === 'hello') {
+      peer = e.source || peer;
+      linked = true;
+      p2Color = m.color;
+      refreshSwatches();
+      setLinkUi();
+      post({ t: 'welcome' });
+    } else if (m.t === 'flap') {
+      flap(1);
+    } else if (m.t === 'color') {
+      p2Color = m.color;
+      refreshSwatches();
+      if (state === 'menu') birds[1].colorIdx = m.color;
+    } else if (m.t === 'bye') {
+      linked = false;
+      setLinkUi();
+    }
+  });
+
+  window.addEventListener('pagehide', () => post({ t: 'bye' }));
+
+  function setLinkUi() {
+    const status = document.getElementById('linkStatus');
+    const btn = document.getElementById('linkBtn');
+    if (IS_GUEST) {
+      // The guest's mode row is hidden, so its status lives on the overlays.
+      document.getElementById('menuWaiting').textContent =
+        linked ? 'WAITING FOR PLAYER 1 TO START…' : 'CONNECTING TO PLAYER 1…';
+      document.getElementById('overWaiting').textContent = 'WAITING FOR PLAYER 1…';
+      updateHud();
+      return;
+    }
+    status.textContent = linked
+      ? 'PLAYER 2 WINDOW LINKED — BOTH USE SPACE'
+      : 'SAME SCREEN — SPACE / ENTER';
+    status.classList.toggle('on', linked);
+    btn.disabled = linked;
+    btn.textContent = linked ? 'PLAYER 2 CONNECTED' : 'OPEN PLAYER 2 WINDOW';
+    document.getElementById('p2Hint').textContent = linked ? 'FLAP: SPACE' : 'FLAP: ENTER';
+    updateHud();
+  }
+
+  function loop(ts) {
+    if (lastTime === null) lastTime = ts;
+    const dt = Math.min(0.033, (ts - lastTime) / 1000);
+    lastTime = ts;
+    const time = ts / 1000;
+
+    if (IS_GUEST) {
+      // The guest simulates nothing; it just keeps its own effects moving
+      // and redraws the latest snapshot at its own refresh rate.
+      updateEffects(dt);
+      shake = Math.max(0, shake - dt * 60);
+      render(time);
+      requestAnimationFrame(loop);
+      return;
+    }
+
+    if (state === 'playing' || state === 'dying') update(dt);
+    if (state === 'menu' || state === 'over') {
+      cloudOffset -= dt * 15;
+      worldScroll += SPEED_EASY * 0.35 * dt;   // idle drift behind the panels
+      updateEffects(dt);
+    }
+    render(time);
+    if (linked) post(snapshot());
+
+    requestAnimationFrame(loop);
+  }
+
+  // ---------- UI wiring ----------
+  document.getElementById('startBtn').addEventListener('click', () => {
+    resetGame();
+    document.getElementById('menuOverlay').classList.add('hidden');
+    document.getElementById('overOverlay').classList.add('hidden');
+    state = 'playing';
+  });
+
+  document.getElementById('againBtn').addEventListener('click', () => {
+    document.getElementById('overOverlay').classList.add('hidden');
+    document.getElementById('menuOverlay').classList.remove('hidden');
+    state = 'menu';
+  });
+
+  document.getElementById('linkBtn').addEventListener('click', () => {
+    const url = location.pathname + '?seat=2';
+    peer = window.open(url, 'flappyDuelP2', 'width=1000,height=840');
+    if (!peer) {
+      document.getElementById('linkStatus').textContent =
+        'POPUP BLOCKED — ALLOW POPUPS AND RETRY';
+    }
+  });
+
+  if (IS_GUEST) {
+    document.body.classList.add('guest');
+    document.querySelector('.panel-box h2').textContent = 'YOU ARE PLAYER 2';
+    document.getElementById('p2Hint').textContent = 'FLAP: SPACE';
+    post({ t: 'hello', color: p2Color });
+  }
+
+  // initial idle render on menu
+  resetGame();
+  setLinkUi();
+  render(0);
+  requestAnimationFrame(loop);
+})();
+</script>
+
+</body>
+</html>

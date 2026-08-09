@@ -3,6 +3,13 @@ node_modules/
 npm-debug.log*
 .env
 .env.local
+
+# SQLite database + its write-ahead log. User data and session rows — never
+# commit these. .env.example documents the variables; this data is local.
+data/
+*.db
+*.db-wal
+*.db-shm
 .DS_Store
 Thumbs.db
 .vscode/

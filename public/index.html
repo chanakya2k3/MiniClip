@@ -1,0 +1,536 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>MINICLIP — arcade</title>
+  <!-- Pixel display face. If it can't load (offline / opened off disk), the
+       monospace stack below takes over and the layout is unaffected. -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet" />
+<style>
+  /* Palette lifted from flappy-duel.html so the arcade and the games read as
+     one machine: dusk sky, dark cabinet panels, green/blue accents. */
+  :root {
+    --sky-top: #2e4d7a;
+    --sky-mid: #7d6fa3;
+    --sky-low: #e8b4a0;
+    --pipe-main: #5ec93f;
+    --pipe-light: #8ef05f;
+    --pipe-dark: #2b6b16;
+    --pipe-edge: #1a3d0d;
+    --panel: #16182b;
+    --panel-soft: #1d2039;
+    --panel-edge: #05060d;
+    --panel-line: #2a2d4a;
+    --cream: #fdf6e3;
+    --muted: #8b8fb5;
+    --p1-glow: #ffd23f;
+    --p2-glow: #4fd8ff;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: 'Courier New', monospace;
+    background: #05060d;
+    color: var(--cream);
+    min-height: 100vh;
+    padding: 28px 16px 60px;
+    display: flex;
+    justify-content: center;
+  }
+
+  /* Dusk backdrop — decorative only, sits behind everything. */
+  .backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: -1;
+    background:
+      radial-gradient(120% 70% at 78% 8%, rgba(255,250,235,0.10), transparent 55%),
+      linear-gradient(180deg, #05060d 0%, #16182b 30%, #2e4d7a 66%, #7d6fa3 88%, #e8b4a0 100%);
+  }
+  .backdrop::after {
+    /* scanlines */
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: repeating-linear-gradient(
+      180deg, rgba(0,0,0,0.18) 0 1px, transparent 1px 3px);
+    opacity: .5;
+  }
+  .stars { position: absolute; inset: 0; overflow: hidden; }
+  .stars i {
+    position: absolute;
+    width: 2px; height: 2px;
+    background: #fff8e7;
+    animation: twinkle 3.4s infinite ease-in-out;
+  }
+  @keyframes twinkle { 0%,100% { opacity: .25; } 50% { opacity: .9; } }
+
+  .shell { width: 100%; max-width: 1040px; }
+
+  /* ---- Header ------------------------------------------------------ */
+  .topbar {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 16px;
+    flex-wrap: wrap;
+    border: 4px solid var(--panel-edge);
+    border-radius: 10px;
+    background: var(--panel);
+    box-shadow: 0 0 0 3px var(--panel-line), 0 18px 50px rgba(0,0,0,.55);
+    padding: 18px 20px;
+    margin-bottom: 26px;
+  }
+
+  .brand {
+    font-family: 'Press Start 2P', 'Courier New', monospace;
+    font-size: 22px;
+    letter-spacing: 2px;
+    line-height: 1.5;
+    text-shadow: 3px 3px 0 var(--panel-edge);
+  }
+  .brand span { color: var(--p1-glow); }
+  .brand small {
+    display: block;
+    font-family: 'Courier New', monospace;
+    font-size: 11px;
+    letter-spacing: 2px;
+    color: var(--muted);
+    margin-top: 10px;
+    text-shadow: none;
+  }
+
+  .coin {
+    font-size: 10px;
+    letter-spacing: 1px;
+    color: var(--muted);
+    text-align: right;
+    line-height: 1.9;
+  }
+  .coin b { color: var(--pipe-light); }
+
+  /* ---- Account corner ----------------------------------------------- */
+  /* Starts hidden and is revealed by the /api/auth/me response, so the page
+     never flashes "Log in" at someone who is already logged in. */
+  .account { display: none; align-items: center; gap: 10px; }
+  .account.show { display: flex; }
+
+  .account-avatar {
+    width: 30px; height: 30px;
+    border: 3px solid var(--panel-line);
+    border-radius: 5px;
+    background: var(--panel-soft);
+    object-fit: cover;
+    image-rendering: pixelated;
+  }
+  .account-name {
+    font-family: 'Press Start 2P', 'Courier New', monospace;
+    font-size: 10px;
+    letter-spacing: 1px;
+    line-height: 1.7;
+    color: var(--pipe-light);
+    text-decoration: none;
+    /* A username is capped at 20 chars server-side, but a narrow topbar
+       still needs a hard stop rather than a wrapped, broken header. */
+    max-width: 150px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .account-name:hover { color: var(--p1-glow); }
+  .account-name small {
+    display: block;
+    font-family: 'Courier New', monospace;
+    font-size: 9px;
+    letter-spacing: 1px;
+    color: var(--muted);
+    margin-top: 5px;
+  }
+
+  .account-btn {
+    font-family: 'Press Start 2P', 'Courier New', monospace;
+    font-size: 9px;
+    letter-spacing: 1px;
+    text-decoration: none;
+    cursor: pointer;
+    padding: 9px 11px;
+    border-radius: 5px;
+    border: 3px solid var(--pipe-edge);
+    background: var(--pipe-main);
+    color: #0d2005;
+    box-shadow: 0 3px 0 var(--pipe-dark);
+  }
+  .account-btn:hover { background: var(--pipe-light); }
+  .account-btn:active { transform: translateY(2px); box-shadow: 0 1px 0 var(--pipe-dark); }
+  .account-btn.ghost {
+    background: var(--panel-soft);
+    color: var(--muted);
+    border-color: var(--panel-line);
+    box-shadow: 0 3px 0 var(--panel-edge);
+  }
+  .account-btn.ghost:hover { background: #262a4a; color: var(--cream); }
+
+  .topbar-right {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 12px;
+  }
+
+  .section-head {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 16px;
+    font-family: 'Press Start 2P', 'Courier New', monospace;
+    font-size: 12px;
+    letter-spacing: 2px;
+    color: var(--cream);
+    text-shadow: 2px 2px 0 var(--panel-edge);
+  }
+  .section-head::after {
+    content: '';
+    flex: 1;
+    height: 4px;
+    background: repeating-linear-gradient(
+      90deg, var(--panel-line) 0 8px, transparent 8px 16px);
+  }
+
+  /* ---- Card grid --------------------------------------------------- */
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 20px;
+  }
+
+  .card {
+    display: flex;
+    flex-direction: column;
+    border: 4px solid var(--panel-edge);
+    border-radius: 10px;
+    background: var(--panel);
+    box-shadow: 0 0 0 3px var(--panel-line), 0 12px 30px rgba(0,0,0,.5);
+    overflow: hidden;
+    text-decoration: none;
+    color: inherit;
+    transition: transform .12s ease, box-shadow .12s ease;
+  }
+  a.card:hover {
+    transform: translateY(-4px);
+    box-shadow: 0 0 0 3px var(--pipe-main), 0 18px 34px rgba(0,0,0,.6);
+  }
+  a.card:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 3px var(--p1-glow), 0 18px 34px rgba(0,0,0,.6);
+  }
+
+  .thumb {
+    position: relative;
+    aspect-ratio: 3 / 2;
+    background: var(--panel-soft);
+    border-bottom: 4px solid var(--panel-edge);
+    overflow: hidden;
+  }
+  .thumb svg { display: block; width: 100%; height: 100%; image-rendering: pixelated; }
+
+  .badge {
+    position: absolute;
+    top: 8px; right: 8px;
+    font-size: 9px;
+    letter-spacing: 1px;
+    padding: 4px 7px;
+    border-radius: 4px;
+    background: var(--pipe-main);
+    color: #0d2005;
+    border: 2px solid var(--pipe-edge);
+  }
+  .badge[data-tone="info"] { background: var(--p2-glow); color: #052430; border-color: #17607a; }
+  .badge[data-tone="soon"] { background: var(--panel-line); color: var(--cream); border-color: var(--panel-edge); }
+
+  .card-body { padding: 14px 16px 16px; display: flex; flex-direction: column; gap: 10px; flex: 1; }
+
+  .card-title {
+    font-family: 'Press Start 2P', 'Courier New', monospace;
+    font-size: 12px;
+    letter-spacing: 1px;
+    line-height: 1.6;
+    color: var(--cream);
+  }
+  a.card:hover .card-title { color: var(--pipe-light); }
+
+  .card-desc {
+    font-size: 12px;
+    line-height: 1.6;
+    color: var(--muted);
+    flex: 1;
+  }
+
+  .tags { display: flex; flex-wrap: wrap; gap: 6px; }
+  .tag {
+    font-size: 9px;
+    letter-spacing: 1px;
+    padding: 3px 7px;
+    border: 2px solid var(--panel-line);
+    border-radius: 4px;
+    color: var(--muted);
+  }
+
+  .cta {
+    font-size: 11px;
+    letter-spacing: 2px;
+    color: var(--pipe-light);
+  }
+  .card.is-soon { opacity: .55; }
+  .card.is-soon .cta { color: var(--muted); }
+
+  .note {
+    margin-top: 26px;
+    font-size: 10px;
+    line-height: 2;
+    letter-spacing: 1px;
+    color: var(--muted);
+    text-align: center;
+  }
+  .note code {
+    color: var(--pipe-light);
+    background: rgba(0,0,0,.35);
+    padding: 2px 6px;
+    border-radius: 3px;
+  }
+</style>
+</head>
+<body>
+  <div class="backdrop" aria-hidden="true"><div class="stars" id="stars"></div></div>
+
+  <div class="shell">
+    <header class="topbar">
+      <div class="brand">
+        MINI<span>CLIP</span>
+        <small>PICK A CABINET · LOCAL &amp; ONLINE</small>
+      </div>
+      <div class="topbar-right">
+        <!-- Exactly one of these two is revealed once /api/auth/me answers. -->
+        <div class="account" id="accountSignedIn">
+          <img class="account-avatar" id="accountAvatar" alt="" hidden />
+          <a class="account-name" href="/profile.html" id="accountName">
+            <span id="accountNameText"></span>
+            <small>VIEW PROFILE</small>
+          </a>
+          <button class="account-btn ghost" id="logoutBtn" type="button">LOG OUT</button>
+        </div>
+
+        <div class="account" id="accountSignedOut">
+          <a class="account-btn ghost" href="login.html">LOG IN</a>
+          <a class="account-btn" href="signup.html">SIGN UP</a>
+        </div>
+
+        <div class="coin">
+          INSERT COIN ·
+          <b id="gameCount">0</b> GAMES ONLINE
+        </div>
+      </div>
+    </header>
+
+    <div class="section-head">ARCADE FLOOR</div>
+    <main class="grid" id="grid"></main>
+
+    <p class="note">
+      Online cabinets need the server: run <code>npm start</code> and open <code>http://localhost:3001</code>.
+    </p>
+  </div>
+
+<script>
+  // ---- The arcade catalogue ------------------------------------------
+  // Adding a game is one entry in this array — nothing else in the page
+  // needs to change. `thumb` is inline pixel SVG on a 120x80 viewBox so the
+  // cards stay self-contained (no image files to ship or break).
+  //   href:   page to open, or null for a placeholder card
+  //   badge:  { text, tone: 'live' | 'info' | 'soon' }
+  const GAMES = [
+    {
+      title: 'FLAPPY DUEL',
+      desc: 'Two birds, one set of pipes, no mercy. Pipes speed up and the gaps close as you survive. Last bird flying wins.',
+      href: 'flappy-duel.html',
+      tags: ['2 PLAYER', 'LOCAL', 'ARCADE'],
+      badge: { text: 'PLAY', tone: 'live' },
+      thumb: `
+        <svg viewBox="0 0 120 80" xmlns="http://www.w3.org/2000/svg">
+          <defs>
+            <linearGradient id="dusk" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stop-color="#2e4d7a"/>
+              <stop offset="45%" stop-color="#7d6fa3"/>
+              <stop offset="100%" stop-color="#e8b4a0"/>
+            </linearGradient>
+          </defs>
+          <rect width="120" height="70" fill="url(#dusk)"/>
+          <circle cx="98" cy="14" r="7" fill="#fffaeb" opacity=".9"/>
+          <rect x="20" y="6" width="2" height="2" fill="#fff8e7"/>
+          <rect x="46" y="12" width="2" height="2" fill="#fff8e7"/>
+          <rect x="72" y="4" width="2" height="2" fill="#fff8e7"/>
+          <!-- pipes -->
+          <g fill="#5ec93f" stroke="#1a3d0d" stroke-width="1.5">
+            <rect x="34" y="0" width="14" height="20"/><rect x="32" y="18" width="18" height="6"/>
+            <rect x="34" y="46" width="14" height="24"/><rect x="32" y="44" width="18" height="6"/>
+            <rect x="78" y="0" width="14" height="34"/><rect x="76" y="32" width="18" height="6"/>
+            <rect x="78" y="58" width="14" height="12"/><rect x="76" y="56" width="18" height="6"/>
+          </g>
+          <!-- birds -->
+          <g stroke="#1a1a1a" stroke-width="1">
+            <ellipse cx="60" cy="32" rx="7" ry="5.5" fill="#f5d13f"/>
+            <ellipse cx="62" cy="48" rx="7" ry="5.5" fill="#4f9ee0"/>
+          </g>
+          <rect x="66" y="30" width="5" height="3" fill="#e0552b"/>
+          <rect x="68" y="46" width="5" height="3" fill="#e08a2b"/>
+          <rect y="66" width="120" height="4" fill="#35507a"/>
+          <rect y="70" width="120" height="10" fill="#7a8a35"/>
+          <g fill="#5c6828">
+            <rect y="70" width="6" height="4"/><rect x="14" y="70" width="6" height="4"/>
+            <rect x="28" y="70" width="6" height="4"/><rect x="42" y="70" width="6" height="4"/>
+            <rect x="56" y="70" width="6" height="4"/><rect x="70" y="70" width="6" height="4"/>
+            <rect x="84" y="70" width="6" height="4"/><rect x="98" y="70" width="6" height="4"/>
+            <rect x="112" y="70" width="6" height="4"/>
+          </g>
+        </svg>`
+    },
+    {
+      title: 'TIC TAC TOE ARENA',
+      desc: 'Server-authoritative 3x3. Rooms, reconnects and rematches — your client is a viewport, not a referee.',
+      href: 'tic-tac-toe.html',
+      tags: ['2 PLAYER', 'ONLINE', 'NEEDS SERVER'],
+      badge: { text: 'PLAY', tone: 'info' },
+      thumb: `
+        <svg viewBox="0 0 120 80" xmlns="http://www.w3.org/2000/svg">
+          <rect width="120" height="80" fill="#16182b"/>
+          <g stroke="#2a2d4a" stroke-width="3">
+            <path d="M50 14 V66 M70 14 V66 M34 31 H86 M34 49 H86"/>
+          </g>
+          <g stroke="#ffd23f" stroke-width="3.5" stroke-linecap="square">
+            <path d="M38 19 L46 27 M46 19 L38 27"/>
+            <path d="M58 37 L66 45 M66 37 L58 45"/>
+            <path d="M78 55 L86 63 M86 55 L78 63"/>
+          </g>
+          <g stroke="#4fd8ff" stroke-width="3.5" fill="none">
+            <rect x="58" y="19" width="8" height="8"/>
+            <rect x="78" y="19" width="8" height="8"/>
+            <rect x="38" y="37" width="8" height="8"/>
+          </g>
+        </svg>`
+    },
+    {
+      title: 'SLOT OPEN',
+      desc: 'Free cabinet. Drop a new self-contained game file next to this page and add one entry to the GAMES array in index.html.',
+      href: null,
+      tags: ['COMING SOON'],
+      badge: { text: 'SOON', tone: 'soon' },
+      thumb: `
+        <svg viewBox="0 0 120 80" xmlns="http://www.w3.org/2000/svg">
+          <rect width="120" height="80" fill="#1d2039"/>
+          <g fill="#2a2d4a">
+            <rect x="30" y="20" width="12" height="12"/><rect x="54" y="20" width="12" height="12"/>
+            <rect x="78" y="20" width="12" height="12"/><rect x="42" y="34" width="12" height="12"/>
+            <rect x="66" y="34" width="12" height="12"/><rect x="54" y="48" width="12" height="12"/>
+          </g>
+          <text x="60" y="72" fill="#8b8fb5" font-family="monospace" font-size="9"
+                text-anchor="middle" letter-spacing="2">ADD A GAME</text>
+        </svg>`
+    },
+  ];
+
+  // ---- Render ---------------------------------------------------------
+  const grid = document.getElementById('grid');
+
+  GAMES.forEach(game => {
+    const playable = Boolean(game.href);
+    // Anchor when it goes somewhere, plain div when it doesn't, so a
+    // placeholder card isn't keyboard-focusable or clickable.
+    const card = document.createElement(playable ? 'a' : 'div');
+    card.className = 'card' + (playable ? '' : ' is-soon');
+    if (playable) card.href = game.href;
+
+    const tags = (game.tags || [])
+      .map(t => `<span class="tag">${t}</span>`)
+      .join('');
+    const badge = game.badge
+      ? `<span class="badge" data-tone="${game.badge.tone || 'live'}">${game.badge.text}</span>`
+      : '';
+
+    card.innerHTML = `
+      <div class="thumb">${game.thumb}${badge}</div>
+      <div class="card-body">
+        <div class="card-title">${game.title}</div>
+        <p class="card-desc">${game.desc}</p>
+        <div class="tags">${tags}</div>
+        <div class="cta">${playable ? '▶ INSERT COIN' : '— CABINET EMPTY —'}</div>
+      </div>`;
+
+    grid.appendChild(card);
+  });
+
+  document.getElementById('gameCount').textContent =
+    GAMES.filter(g => g.href).length;
+
+  // ---- Who's playing? --------------------------------------------------
+  // One call on load decides which half of the topbar to reveal. The server
+  // is the authority — there is no copy of "am I logged in" in localStorage
+  // to drift out of sync with the session, and nothing here can be flipped
+  // from the console to gain anything, because every protected endpoint
+  // re-checks the session server-side.
+  (async function renderAccount() {
+    const signedIn  = document.getElementById('accountSignedIn');
+    const signedOut = document.getElementById('accountSignedOut');
+
+    let data = { user: null };
+    try {
+      const response = await fetch('/api/auth/me', { credentials: 'same-origin' });
+      data = await response.json();
+    } catch {
+      // Server unreachable (opened off disk, or npm start isn't running).
+      // Fall back to the logged-out view rather than showing nothing.
+    }
+
+    if (data.user) {
+      // textContent, not innerHTML. The username is validated to
+      // [A-Za-z0-9_-] server-side, so this is belt and braces — but the
+      // habit is the point: the moment a display name is allowed to contain
+      // a quote or an angle bracket, innerHTML here becomes stored XSS.
+      document.getElementById('accountNameText').textContent = data.user.username;
+
+      if (data.user.avatarUrl) {
+        const avatar = document.getElementById('accountAvatar');
+        avatar.src = data.user.avatarUrl;
+        avatar.alt = data.user.username + "'s avatar";
+        avatar.hidden = false;
+      }
+
+      signedIn.classList.add('show');
+    } else {
+      signedOut.classList.add('show');
+    }
+
+    document.getElementById('logoutBtn').addEventListener('click', async () => {
+      await fetch('/api/auth/logout', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'X-Requested-With': 'fetch' },
+      });
+      location.reload();
+    });
+  })();
+
+  // Scattered starfield for the backdrop.
+  const stars = document.getElementById('stars');
+  for (let i = 0; i < 70; i++) {
+    const s = document.createElement('i');
+    s.style.left = (Math.random() * 100).toFixed(2) + '%';
+    s.style.top = (Math.random() * 70).toFixed(2) + '%';
+    s.style.animationDelay = (Math.random() * 3.4).toFixed(2) + 's';
+    if (Math.random() < 0.2) { s.style.width = '3px'; s.style.height = '3px'; }
+    stars.appendChild(s);
+  }
+</script>
+</body>
+</html>

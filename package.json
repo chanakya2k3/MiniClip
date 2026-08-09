@@ -2,14 +2,26 @@
   "name": "MiniClip",
   "version": "1.0.0",
   "private": true,
-  "description": "Minimal server-authoritative MiniClip for learning the pattern",
+  "description": "Server-authoritative MiniClip arcade with accounts, sessions and Google OAuth",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "test": "node test-reconnect.js"
+    "dev": "node --watch server.js",
+    "test": "node test-reconnect.js",
+    "test:auth": "node test-auth.js"
   },
   "dependencies": {
-    "socket.io": "^4.7.5"
+    "bcrypt": "^6.0.0",
+    "better-sqlite3": "^13.0.3",
+    "dotenv": "^17.4.2",
+    "express": "^5.2.1",
+    "express-rate-limit": "^8.6.2",
+    "express-session": "^1.19.0",
+    "helmet": "^8.3.0",
+    "passport": "^0.7.0",
+    "passport-google-oauth20": "^2.0.0",
+    "socket.io": "^4.7.5",
+    "zxcvbn": "^4.4.2"
   },
   "devDependencies": {
     "socket.io-client": "^4.7.5"

@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>MINICLIP — pick a name</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="auth.css" />
+</head>
+<body>
+  <div class="backdrop" aria-hidden="true"><div class="stars" id="stars"></div></div>
+
+  <div class="auth-shell">
+    <a class="auth-brand" href="/">MINI<span>CLIP</span></a>
+
+    <!-- The second half of a Google signup. Google told us who this person
+         is; it can't tell us what they want to be called on a leaderboard. -->
+    <main class="panel">
+      <h1 class="panel-title">PICK A NAME</h1>
+      <p class="panel-sub" id="sub">Google verified you. Now choose how you appear in the arcade.</p>
+
+      <div class="banner" id="banner" role="alert" aria-live="assertive"></div>
+
+      <form id="form" novalidate>
+        <div class="field" id="usernameField">
+          <label for="username">USERNAME</label>
+          <input
+            id="username" name="username" type="text"
+            autocomplete="username" placeholder="3-20 characters"
+            maxlength="20" spellcheck="false" autocapitalize="off" required />
+          <div class="hint" id="usernameHint" aria-live="polite"></div>
+        </div>
+
+        <button class="btn" id="submit" type="submit">CLAIM IT</button>
+      </form>
+
+      <p class="panel-foot">
+        Changed your mind? <a href="/">Back to the arcade</a>
+      </p>
+    </main>
+  </div>
+
+  <script src="auth-client.js"></script>
+  <script>
+    const { api, debounce, setHint, setFieldState, setBanner, starfield } = MiniAuth;
+    starfield('stars');
+
+    const form          = document.getElementById('form');
+    const banner        = document.getElementById('banner');
+    const sub           = document.getElementById('sub');
+    const usernameInput = document.getElementById('username');
+    const usernameField = document.getElementById('usernameField');
+    const usernameHint  = document.getElementById('usernameHint');
+    const submitBtn     = document.getElementById('submit');
+
+    const USERNAME_RE = /^[a-zA-Z0-9_-]+$/;
+    let usernameOk = false;
+    let checkSeq = 0;
+
+    // Load the pending identity. It lives in the session on the server — the
+    // page is told only the email to display and a suggested name. If there's
+    // no pending signup (expired session, direct visit), there's nothing to
+    // complete, so send them back to the start.
+    api('/api/auth/pending-google').then(({ ok, data }) => {
+      if (!ok) {
+        location.replace('/login.html?error=' + encodeURIComponent('That signup expired. Try again.'));
+        return;
+      }
+
+      if (data.email) {
+        sub.textContent = 'Signed in with Google as ' + data.email + '. Now choose how you appear in the arcade.';
+      }
+      if (data.suggestion) {
+        usernameInput.value = data.suggestion;
+        usernameInput.dispatchEvent(new Event('input'));
+      }
+      usernameInput.focus();
+      usernameInput.select();
+    });
+
+    function localProblem(value) {
+      if (value.length === 0) return '';
+      if (value.length < 3)   return 'At least 3 characters.';
+      if (value.length > 20)  return 'At most 20 characters.';
+      if (!USERNAME_RE.test(value)) return 'Letters, numbers, underscore and hyphen only.';
+      return null;
+    }
+
+    const checkAvailability = debounce(async (value) => {
+      const seq = ++checkSeq;
+      const { data } = await api('/api/auth/username-available?username=' + encodeURIComponent(value));
+      if (seq !== checkSeq) return;
+
+      usernameOk = Boolean(data.available);
+      setHint(usernameHint, data.message, usernameOk ? 'ok' : 'bad');
+      setFieldState(usernameField, usernameOk ? 'ok' : 'bad');
+    }, 350);
+
+    usernameInput.addEventListener('input', () => {
+      const value = usernameInput.value.trim();
+      usernameOk = false;
+
+      const problem = localProblem(value);
+      if (problem === '') {
+        setHint(usernameHint, '');
+        setFieldState(usernameField, null);
+        checkSeq++;
+        return;
+      }
+      if (problem) {
+        setHint(usernameHint, problem, 'bad');
+        setFieldState(usernameField, 'bad');
+        checkSeq++;
+        return;
+      }
+
+      setHint(usernameHint, 'Checking…', 'busy');
+      setFieldState(usernameField, null);
+      checkAvailability(value);
+    });
+
+    form.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      setBanner(banner, '');
+
+      const username = usernameInput.value.trim();
+      if (localProblem(username) !== null) {
+        setBanner(banner, 'Fix the username first.');
+        return;
+      }
+
+      submitBtn.disabled = true;
+      submitBtn.textContent = 'CLAIMING…';
+
+      const { ok, data } = await api('/api/auth/choose-username', {
+        method: 'POST',
+        body: { username },
+      });
+
+      if (ok) { location.href = '/'; return; }
+
+      if (data.error === 'no_pending_signup') {
+        location.replace('/login.html?error=' + encodeURIComponent(data.message));
+        return;
+      }
+
+      setFieldState(usernameField, 'bad');
+      setHint(usernameHint, data.message, 'bad');
+      setBanner(banner, data.message || 'Could not claim that name.');
+      submitBtn.disabled = false;
+      submitBtn.textContent = 'CLAIM IT';
+    });
+  </script>
+</body>
+</html>

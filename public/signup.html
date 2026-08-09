@@ -1,0 +1,286 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>MINICLIP — new player</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="auth.css" />
+</head>
+<body>
+  <div class="backdrop" aria-hidden="true"><div class="stars" id="stars"></div></div>
+
+  <div class="auth-shell">
+    <a class="auth-brand" href="/">MINI<span>CLIP</span></a>
+
+    <main class="panel">
+      <h1 class="panel-title">NEW PLAYER</h1>
+      <p class="panel-sub">Pick a name for the leaderboard.</p>
+
+      <div class="banner" id="banner" role="alert" aria-live="assertive"></div>
+
+      <!-- novalidate: the browser's own bubbles don't match the pixel styling,
+           and every rule they'd enforce is enforced here and on the server. -->
+      <form id="form" novalidate>
+        <div class="field" id="usernameField">
+          <label for="username">USERNAME</label>
+          <input
+            id="username" name="username" type="text"
+            autocomplete="username" placeholder="3-20 characters"
+            maxlength="20" spellcheck="false" autocapitalize="off" required />
+          <div class="hint" id="usernameHint" aria-live="polite"></div>
+        </div>
+
+        <div class="field" id="passwordField">
+          <label for="password">PASSWORD</label>
+          <input
+            id="password" name="password" type="password"
+            autocomplete="new-password" placeholder="at least 10 characters" required />
+
+          <div class="meter" id="meter" data-score="0" aria-hidden="true">
+            <i></i><i></i><i></i><i></i>
+          </div>
+          <div class="meter-label" id="meterLabel" aria-live="polite"></div>
+          <div class="hint" id="passwordHint"></div>
+        </div>
+
+        <button class="btn" id="submit" type="submit">CREATE ACCOUNT</button>
+      </form>
+
+      <div class="divider">OR</div>
+
+      <a class="btn btn-google" id="googleBtn" href="/api/auth/google">
+        <svg viewBox="0 0 48 48" aria-hidden="true">
+          <path fill="#EA4335" d="M24 9.5c3.5 0 6.6 1.2 9 3.6l6.7-6.7C35.6 2.6 30.2 0 24 0 14.6 0 6.4 5.4 2.5 13.2l7.8 6.1C12.2 13.2 17.6 9.5 24 9.5z"/>
+          <path fill="#4285F4" d="M46.1 24.6c0-1.6-.1-3.1-.4-4.6H24v9.1h12.4c-.5 2.9-2.2 5.4-4.7 7l7.6 5.9c4.4-4.1 6.8-10.1 6.8-17.4z"/>
+          <path fill="#FBBC05" d="M10.3 28.7c-.5-1.4-.8-2.9-.8-4.7s.3-3.3.8-4.7l-7.8-6.1C.9 16.5 0 20.1 0 24s.9 7.5 2.5 10.8l7.8-6.1z"/>
+          <path fill="#34A853" d="M24 48c6.5 0 11.9-2.1 15.9-5.8l-7.6-5.9c-2.1 1.4-4.8 2.3-8.3 2.3-6.4 0-11.8-3.7-13.7-8.9l-7.8 6.1C6.4 42.6 14.6 48 24 48z"/>
+        </svg>
+        SIGN UP WITH GOOGLE
+      </a>
+
+      <p class="panel-foot">
+        Already have an account? <a href="login.html" id="loginLink">Log in</a>
+      </p>
+    </main>
+  </div>
+
+  <script src="auth-client.js"></script>
+  <!-- zxcvbn is ~800KB, which is a lot for a form. `defer` keeps it off the
+       critical path: the page renders and the username field works while it
+       downloads, and the meter starts reporting once it lands. Self-hosted
+       from node_modules rather than a CDN — see the note in src/app.js. -->
+  <script src="/vendor/zxcvbn.js" defer></script>
+  <script>
+    const { api, debounce, setHint, setFieldState, setBanner, starfield, safeNext } = MiniAuth;
+    starfield('stars');
+
+    const form          = document.getElementById('form');
+    const banner        = document.getElementById('banner');
+    const usernameInput = document.getElementById('username');
+    const usernameField = document.getElementById('usernameField');
+    const usernameHint  = document.getElementById('usernameHint');
+    const passwordInput = document.getElementById('password');
+    const passwordField = document.getElementById('passwordField');
+    const passwordHint  = document.getElementById('passwordHint');
+    const meter         = document.getElementById('meter');
+    const meterLabel    = document.getElementById('meterLabel');
+    const submitBtn     = document.getElementById('submit');
+    const googleBtn     = document.getElementById('googleBtn');
+
+    // Carry ?next= through, so a user sent here from a protected page lands
+    // back on it after signing up — including via the Google round-trip.
+    const next = safeNext('/');
+    document.getElementById('loginLink').href = 'login.html?next=' + encodeURIComponent(next);
+    googleBtn.href = '/api/auth/google?next=' + encodeURIComponent(next);
+
+    // Hide Google sign-up if the server has no credentials configured,
+    // rather than offering a button that leads to a 503.
+    api('/api/auth/me').then(({ data }) => {
+      if (!data.googleEnabled) {
+        googleBtn.classList.add('is-disabled');
+        googleBtn.removeAttribute('href');
+        googleBtn.title = 'Google sign-in is not configured on this server.';
+      }
+    });
+
+    // ---- Live username availability -----------------------------------
+    // Mirrors the server's rules so the client can reject the obvious cases
+    // without a round-trip. This is a UX shortcut, never a security control:
+    // the same checks run in src/validators/authValidators.js, where they
+    // can't be skipped.
+    const USERNAME_RE = /^[a-zA-Z0-9_-]+$/;
+
+    let usernameOk = false;
+    // Monotonically increasing request id. Responses to a debounced check
+    // can still arrive out of order (an early slow request landing after a
+    // later fast one), which would show the verdict for a name the user has
+    // already changed. Only the newest request is allowed to write to the UI.
+    let checkSeq = 0;
+
+    function localUsernameProblem(value) {
+      if (value.length === 0) return '';
+      if (value.length < 3)   return 'At least 3 characters.';
+      if (value.length > 20)  return 'At most 20 characters.';
+      if (!USERNAME_RE.test(value)) return 'Letters, numbers, underscore and hyphen only.';
+      return null; // null = looks fine locally, worth asking the server
+    }
+
+    const checkAvailability = debounce(async (value) => {
+      const seq = ++checkSeq;
+      const { data } = await api('/api/auth/username-available?username=' + encodeURIComponent(value));
+      if (seq !== checkSeq) return; // a newer keystroke already superseded this
+
+      usernameOk = Boolean(data.available);
+      setHint(usernameHint, data.message, usernameOk ? 'ok' : 'bad');
+      setFieldState(usernameField, usernameOk ? 'ok' : 'bad');
+      refreshStrength(); // password strength depends on the username
+    }, 350);
+
+    usernameInput.addEventListener('input', () => {
+      const value = usernameInput.value.trim();
+      usernameOk = false;
+
+      const problem = localUsernameProblem(value);
+      if (problem === '') {
+        setHint(usernameHint, '');
+        setFieldState(usernameField, null);
+        checkSeq++;               // cancel any in-flight answer
+        return;
+      }
+      if (problem) {
+        setHint(usernameHint, problem, 'bad');
+        setFieldState(usernameField, 'bad');
+        checkSeq++;
+        return;
+      }
+
+      setHint(usernameHint, 'Checking…', 'busy');
+      setFieldState(usernameField, null);
+      checkAvailability(value);
+    });
+
+    // ---- Password strength (zxcvbn) -----------------------------------
+    const LABELS = ['Very weak', 'Weak', 'Fair', 'Strong', 'Very strong'];
+    const MIN_SCORE = 2;      // matches MIN_STRENGTH_SCORE in src/auth/password.js
+    const MIN_LENGTH = 10;    // matches MIN_PASSWORD_LENGTH
+
+    let passwordOk = false;
+
+    function refreshStrength() {
+      const value = passwordInput.value;
+
+      if (!value) {
+        meter.dataset.score = '0';
+        meterLabel.textContent = '';
+        setHint(passwordHint, '');
+        setFieldState(passwordField, null);
+        passwordOk = false;
+        return;
+      }
+
+      // zxcvbn is deferred, so it may not have loaded yet on a fast typist's
+      // first keystrokes. Fall back to the length rule until it arrives.
+      if (typeof zxcvbn !== 'function') {
+        meterLabel.textContent = 'Checking strength…';
+        passwordOk = value.length >= MIN_LENGTH;
+        return;
+      }
+
+      // Passing the username as context is what makes "chanshi2024" score as
+      // weak for the user chanshi — the same context the server passes.
+      const result = zxcvbn(value, [usernameInput.value.trim()].filter(Boolean));
+      const score = result.score;   // 0-4
+
+      meter.dataset.score = String(score);
+
+      const tooShort = value.length < MIN_LENGTH;
+      passwordOk = !tooShort && score >= MIN_SCORE;
+
+      meterLabel.innerHTML = '';
+      const strong = document.createElement('b');
+      strong.textContent = LABELS[score];
+      meterLabel.append(strong);
+
+      // zxcvbn estimates how long an offline attack would take — far more
+      // meaningful to a person than "add a symbol".
+      const crackTime = result.crack_times_display?.offline_slow_hashing_1e4_per_second;
+      if (crackTime) meterLabel.append(' · cracks in ~' + crackTime);
+
+      if (tooShort) {
+        setHint(passwordHint, 'At least ' + MIN_LENGTH + ' characters.', 'bad');
+        setFieldState(passwordField, 'bad');
+      } else if (!passwordOk) {
+        const tip = result.feedback.warning
+          || result.feedback.suggestions[0]
+          || 'Try a longer phrase, or mix in unrelated words.';
+        setHint(passwordHint, tip, 'bad');
+        setFieldState(passwordField, 'bad');
+      } else {
+        setHint(passwordHint, '', 'ok');
+        setFieldState(passwordField, 'ok');
+      }
+    }
+
+    passwordInput.addEventListener('input', refreshStrength);
+
+    // ---- Submit --------------------------------------------------------
+    form.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      setBanner(banner, '');
+
+      const username = usernameInput.value.trim();
+      const password = passwordInput.value;
+
+      // Client-side gate is a courtesy — the server re-checks everything.
+      if (localUsernameProblem(username) !== null) {
+        setBanner(banner, 'Fix the username first.');
+        usernameInput.focus();
+        return;
+      }
+      if (!passwordOk) {
+        setBanner(banner, 'Choose a stronger password.');
+        passwordInput.focus();
+        return;
+      }
+
+      submitBtn.disabled = true;
+      submitBtn.textContent = 'CREATING…';
+
+      const { ok, data } = await api('/api/auth/signup', {
+        method: 'POST',
+        body: { username, password },
+      });
+
+      if (ok) {
+        // Full navigation rather than a client-side route: the session cookie
+        // is already set, so the next page load is authenticated.
+        location.href = next;
+        return;
+      }
+
+      // Map the server's error code back onto the field that caused it, so
+      // the message lands where the user is looking.
+      if (data.error === 'username_taken' || data.error === 'invalid_username') {
+        setFieldState(usernameField, 'bad');
+        setHint(usernameHint, data.message, 'bad');
+        usernameInput.focus();
+      } else if (data.error === 'weak_password' || data.error === 'invalid_password') {
+        setFieldState(passwordField, 'bad');
+        setHint(passwordHint, data.message, 'bad');
+        passwordInput.focus();
+      }
+
+      setBanner(banner, data.message || 'Could not create the account.');
+      submitBtn.disabled = false;
+      submitBtn.textContent = 'CREATE ACCOUNT';
+    });
+
+    // Surface an error handed back by the Google redirect.
+    const oauthError = new URLSearchParams(location.search).get('error');
+    if (oauthError) setBanner(banner, oauthError);
+  </script>
+</body>
+</html>

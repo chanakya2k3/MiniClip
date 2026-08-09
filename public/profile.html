@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>MINICLIP — profile</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="auth.css" />
+  <style>
+    .auth-shell { max-width: 520px; }
+    .stat-row {
+      display: flex; justify-content: space-between; gap: 12px;
+      font-size: 11px; letter-spacing: 1px; line-height: 2.2;
+      border-bottom: 2px dashed var(--panel-line);
+      padding: 4px 0;
+    }
+    .stat-row:last-child { border-bottom: 0; }
+    .stat-row span { color: var(--muted); }
+    .stat-row b { color: var(--cream); font-weight: normal; }
+    .empty { font-size: 11px; color: var(--muted); line-height: 2; letter-spacing: 1px; }
+  </style>
+</head>
+<body>
+  <div class="backdrop" aria-hidden="true"><div class="stars" id="stars"></div></div>
+
+  <div class="auth-shell">
+    <a class="auth-brand" href="/">MINI<span>CLIP</span></a>
+
+    <!-- This page is served through requireAuthPage in src/app.js, so an
+         anonymous visitor is redirected to /login.html before the HTML is
+         ever sent. The fetch below is the second line of defence, not the
+         first: protecting a page purely in client JavaScript protects
+         nothing, since the file has already been delivered by then. -->
+    <main class="panel">
+      <h1 class="panel-title">PROFILE</h1>
+      <p class="panel-sub" id="sub">Loading…</p>
+
+      <div id="stats"></div>
+
+      <div class="divider">SCORES</div>
+      <div id="scores"><p class="empty">Loading…</p></div>
+
+      <div style="margin-top:22px">
+        <button class="btn btn-ghost" id="logout">LOG OUT</button>
+      </div>
+
+      <p class="panel-foot"><a href="/">Back to the arcade</a></p>
+    </main>
+  </div>
+
+  <script src="auth-client.js"></script>
+  <script>
+    const { api, starfield } = MiniAuth;
+    starfield('stars');
+
+    const sub    = document.getElementById('sub');
+    const stats  = document.getElementById('stats');
+    const scores = document.getElementById('scores');
+
+    /** Builds a label/value row with textContent — never innerHTML. */
+    function row(label, value) {
+      const wrap = document.createElement('div');
+      wrap.className = 'stat-row';
+      const l = document.createElement('span');
+      l.textContent = label;
+      const v = document.createElement('b');
+      v.textContent = value;
+      wrap.append(l, v);
+      return wrap;
+    }
+
+    api('/api/auth/profile').then(({ ok, data }) => {
+      if (!ok) { location.replace('/login.html?next=/profile.html'); return; }
+
+      const user = data.user;
+      sub.textContent = 'Signed in as ' + user.username;
+
+      stats.append(
+        row('USERNAME', user.username),
+        row('JOINED', user.createdAt),
+        row('SIGN-IN', user.hasPassword ? 'Password' : 'Google')
+      );
+    });
+
+    api('/api/scores/mine').then(({ ok, data }) => {
+      scores.innerHTML = '';
+      if (!ok || !data.scores || data.scores.length === 0) {
+        const p = document.createElement('p');
+        p.className = 'empty';
+        p.textContent = 'No scores yet. Go play something.';
+        scores.append(p);
+        return;
+      }
+      for (const entry of data.scores) {
+        scores.append(row(entry.game.toUpperCase(), String(entry.score)));
+      }
+    });
+
+    document.getElementById('logout').addEventListener('click', async () => {
+      await api('/api/auth/logout', { method: 'POST' });
+      location.href = '/';
+    });
+  </script>
+</body>
+</html>

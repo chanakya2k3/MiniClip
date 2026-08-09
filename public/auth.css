@@ -1,0 +1,280 @@
+/* Shared styling for the auth pages (login, signup, choose-username, profile).
+   Palette and furniture lifted from index.html so these read as the same
+   machine as the arcade: dusk backdrop, dark cabinet panel, pixel type,
+   green/blue accents. */
+
+:root {
+  --sky-top: #2e4d7a;
+  --sky-mid: #7d6fa3;
+  --sky-low: #e8b4a0;
+  --pipe-main: #5ec93f;
+  --pipe-light: #8ef05f;
+  --pipe-dark: #2b6b16;
+  --pipe-edge: #1a3d0d;
+  --panel: #16182b;
+  --panel-soft: #1d2039;
+  --panel-edge: #05060d;
+  --panel-line: #2a2d4a;
+  --cream: #fdf6e3;
+  --muted: #8b8fb5;
+  --p1-glow: #ffd23f;
+  --p2-glow: #4fd8ff;
+  --danger: #ff6b6b;
+  --danger-dark: #6b1f1f;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: 'Courier New', monospace;
+  background: #05060d;
+  color: var(--cream);
+  min-height: 100vh;
+  padding: 28px 16px 60px;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+}
+
+.backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  background:
+    radial-gradient(120% 70% at 78% 8%, rgba(255,250,235,0.10), transparent 55%),
+    linear-gradient(180deg, #05060d 0%, #16182b 30%, #2e4d7a 66%, #7d6fa3 88%, #e8b4a0 100%);
+}
+.backdrop::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: repeating-linear-gradient(180deg, rgba(0,0,0,0.18) 0 1px, transparent 1px 3px);
+  opacity: .5;
+}
+.stars { position: absolute; inset: 0; overflow: hidden; }
+.stars i {
+  position: absolute;
+  width: 2px; height: 2px;
+  background: #fff8e7;
+  animation: twinkle 3.4s infinite ease-in-out;
+}
+@keyframes twinkle { 0%,100% { opacity: .25; } 50% { opacity: .9; } }
+
+/* ---- Cabinet panel -------------------------------------------------- */
+.auth-shell { width: 100%; max-width: 440px; margin-top: 4vh; }
+
+.auth-brand {
+  display: block;
+  text-align: center;
+  font-family: 'Press Start 2P', 'Courier New', monospace;
+  font-size: 20px;
+  letter-spacing: 2px;
+  line-height: 1.5;
+  color: var(--cream);
+  text-decoration: none;
+  text-shadow: 3px 3px 0 var(--panel-edge);
+  margin-bottom: 22px;
+}
+.auth-brand span { color: var(--p1-glow); }
+
+.panel {
+  border: 4px solid var(--panel-edge);
+  border-radius: 10px;
+  background: var(--panel);
+  box-shadow: 0 0 0 3px var(--panel-line), 0 18px 50px rgba(0,0,0,.55);
+  padding: 26px 24px 24px;
+}
+
+.panel-title {
+  font-family: 'Press Start 2P', 'Courier New', monospace;
+  font-size: 13px;
+  letter-spacing: 2px;
+  color: var(--cream);
+  text-shadow: 2px 2px 0 var(--panel-edge);
+  margin-bottom: 6px;
+}
+.panel-sub {
+  font-size: 11px;
+  line-height: 1.9;
+  letter-spacing: 1px;
+  color: var(--muted);
+  margin-bottom: 22px;
+}
+
+/* ---- Fields ---------------------------------------------------------- */
+.field { margin-bottom: 18px; }
+
+.field label {
+  display: block;
+  font-size: 10px;
+  letter-spacing: 2px;
+  color: var(--muted);
+  margin-bottom: 8px;
+}
+
+.field input {
+  width: 100%;
+  font-family: 'Courier New', monospace;
+  font-size: 14px;
+  color: var(--cream);
+  background: var(--panel-soft);
+  border: 3px solid var(--panel-line);
+  border-radius: 6px;
+  padding: 11px 12px;
+  outline: none;
+  transition: border-color .12s ease, box-shadow .12s ease;
+}
+.field input::placeholder { color: #565b83; }
+.field input:focus {
+  border-color: var(--pipe-main);
+  box-shadow: 0 0 0 3px rgba(94,201,63,.18);
+}
+.field input:disabled { opacity: .55; cursor: not-allowed; }
+
+/* Per-field state: the border is the signal, the hint line is the detail. */
+.field.is-ok input    { border-color: var(--pipe-main); }
+.field.is-bad input   { border-color: var(--danger); box-shadow: 0 0 0 3px rgba(255,107,107,.15); }
+
+.hint {
+  min-height: 15px;              /* reserved, so the form doesn't jump as
+                                    messages appear and disappear */
+  margin-top: 7px;
+  font-size: 10px;
+  line-height: 1.5;
+  letter-spacing: .5px;
+  color: var(--muted);
+}
+.hint.ok  { color: var(--pipe-light); }
+.hint.bad { color: var(--danger); }
+.hint.busy { color: var(--muted); opacity: .8; }
+
+/* ---- Password strength meter ---------------------------------------- */
+.meter {
+  display: flex;
+  gap: 4px;
+  margin-top: 9px;
+}
+.meter i {
+  flex: 1;
+  height: 6px;
+  background: var(--panel-line);
+  border-radius: 2px;
+  transition: background .15s ease;
+}
+/* Four segments, filled to the zxcvbn score (0-4). */
+.meter[data-score="1"] i:nth-child(-n+1),
+.meter[data-score="2"] i:nth-child(-n+2) { background: var(--danger); }
+.meter[data-score="3"] i:nth-child(-n+3) { background: var(--p1-glow); }
+.meter[data-score="4"] i { background: var(--pipe-main); }
+
+.meter-label {
+  margin-top: 7px;
+  font-size: 10px;
+  letter-spacing: 1px;
+  color: var(--muted);
+  min-height: 14px;
+}
+.meter-label b { color: var(--cream); }
+
+/* ---- Buttons --------------------------------------------------------- */
+.btn {
+  display: block;
+  width: 100%;
+  font-family: 'Press Start 2P', 'Courier New', monospace;
+  font-size: 11px;
+  letter-spacing: 1px;
+  line-height: 1.6;
+  text-align: center;
+  text-decoration: none;
+  cursor: pointer;
+  padding: 14px 12px;
+  border-radius: 6px;
+  border: 3px solid var(--pipe-edge);
+  background: var(--pipe-main);
+  color: #0d2005;
+  box-shadow: 0 4px 0 var(--pipe-dark);
+  transition: transform .08s ease, box-shadow .08s ease, background .12s ease;
+}
+.btn:hover:not(:disabled) { background: var(--pipe-light); }
+.btn:active:not(:disabled) { transform: translateY(3px); box-shadow: 0 1px 0 var(--pipe-dark); }
+.btn:focus-visible { outline: 3px solid var(--p1-glow); outline-offset: 2px; }
+.btn:disabled { opacity: .5; cursor: not-allowed; box-shadow: 0 4px 0 var(--panel-line); }
+
+.btn-ghost {
+  background: var(--panel-soft);
+  color: var(--cream);
+  border-color: var(--panel-line);
+  box-shadow: 0 4px 0 var(--panel-edge);
+}
+.btn-ghost:hover:not(:disabled) { background: #262a4a; }
+
+/* Google button: neutral, so it reads as "someone else's brand", not ours. */
+.btn-google {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  background: #fdf6e3;
+  color: #1a1a1a;
+  border-color: #b9b09a;
+  box-shadow: 0 4px 0 #8a836f;
+  font-size: 10px;
+}
+.btn-google:hover:not(:disabled) { background: #fff; }
+.btn-google svg { width: 16px; height: 16px; flex: none; }
+.btn-google.is-disabled { opacity: .45; cursor: not-allowed; }
+
+/* ---- Divider --------------------------------------------------------- */
+.divider {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 20px 0;
+  font-size: 9px;
+  letter-spacing: 2px;
+  color: var(--muted);
+}
+.divider::before, .divider::after {
+  content: '';
+  flex: 1;
+  height: 3px;
+  background: repeating-linear-gradient(90deg, var(--panel-line) 0 6px, transparent 6px 12px);
+}
+
+/* ---- Form-level banner ----------------------------------------------- */
+.banner {
+  display: none;
+  font-size: 11px;
+  line-height: 1.7;
+  letter-spacing: .5px;
+  padding: 11px 13px;
+  border-radius: 6px;
+  margin-bottom: 18px;
+  border: 3px solid;
+}
+.banner.show { display: block; }
+.banner.error   { background: rgba(107,31,31,.35); border-color: var(--danger-dark); color: #ffc9c9; }
+.banner.success { background: rgba(43,107,22,.3);  border-color: var(--pipe-dark);   color: #ccf5b8; }
+
+/* ---- Footer link ------------------------------------------------------ */
+.panel-foot {
+  margin-top: 20px;
+  text-align: center;
+  font-size: 11px;
+  letter-spacing: 1px;
+  color: var(--muted);
+  line-height: 2;
+}
+.panel-foot a { color: var(--p2-glow); text-decoration: none; }
+.panel-foot a:hover { text-decoration: underline; }
+
+/* ---- Screen-reader-only ----------------------------------------------- */
+.sr-only {
+  position: absolute;
+  width: 1px; height: 1px;
+  padding: 0; margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
