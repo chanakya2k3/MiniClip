@@ -111,6 +111,11 @@ function connect() {
   const finalState = await st;
   check("resumed player can still move", finalState.board[2] === "X", JSON.stringify(finalState.board));
   check("X wins on 0,1,2", finalState.status === "FINISHED" && finalState.winner === "X", finalState.winner);
+  check(
+    "winningLine sent to client",
+    JSON.stringify(finalState.winningLine) === "[0,1,2]",
+    JSON.stringify(finalState.winningLine)
+  );
 
   // A stranger must not be able to steal a held seat.
   const c = await connect();
