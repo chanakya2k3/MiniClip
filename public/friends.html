@@ -1,0 +1,579 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>MINICLIP — friends</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="auth.css" />
+  <link rel="stylesheet" href="friends.css" />
+</head>
+<body>
+  <div class="backdrop" aria-hidden="true"><div class="stars" id="stars"></div></div>
+
+  <div class="social-shell">
+    <header class="social-top">
+      <a class="auth-brand" href="/">MINI<span>CLIP</span></a>
+      <div style="display:flex;gap:8px;align-items:center">
+        <span class="row-sub" id="meLabel"></span>
+        <a class="mini ghost" href="/profile.html">PROFILE</a>
+        <a class="mini ghost" href="/">ARCADE</a>
+      </div>
+    </header>
+
+    <div class="social-grid">
+      <!-- ---- Left column ------------------------------------------- -->
+      <div>
+        <section class="card-panel">
+          <div class="card-head">ADD A PLAYER</div>
+          <div class="field" style="margin-bottom:8px">
+            <input id="searchInput" type="text" placeholder="search by username"
+                   autocomplete="off" spellcheck="false" maxlength="20" />
+            <div class="hint" id="searchHint" aria-live="polite"></div>
+          </div>
+          <div id="searchResults"></div>
+        </section>
+
+        <section class="card-panel" id="requestsPanel" hidden>
+          <div class="card-head">
+            REQUESTS <span class="pill" id="requestCount" hidden>0</span>
+          </div>
+          <div id="requestList"></div>
+        </section>
+
+        <section class="card-panel">
+          <div class="card-head">
+            FRIENDS <span class="pill quiet" id="friendCount">0</span>
+          </div>
+          <div id="friendList"><p class="empty">Loading…</p></div>
+        </section>
+      </div>
+
+      <!-- ---- Right column: chat ------------------------------------ -->
+      <section class="chat-panel">
+        <div class="chat-head" id="chatHead" hidden>
+          <div class="avatar" id="chatAvatar">?</div>
+          <div class="row-main">
+            <div class="chat-title" id="chatTitle"></div>
+            <div class="chat-status" id="chatStatus"></div>
+          </div>
+          <button class="mini danger" id="unfriendBtn" type="button">UNFRIEND</button>
+        </div>
+
+        <div class="chat-blank" id="chatBlank">
+          Pick a friend to start talking.<br />
+          Messages are only possible between accepted friends.
+        </div>
+
+        <div class="chat-log" id="chatLog" hidden></div>
+        <div class="typing" id="typingLine"></div>
+
+        <form class="chat-compose" id="composeForm" hidden>
+          <input id="composeInput" type="text" placeholder="say something…"
+                 maxlength="1000" autocomplete="off" />
+          <button class="btn" type="submit" id="sendBtn">SEND</button>
+        </form>
+      </section>
+    </div>
+  </div>
+
+  <div class="toast-stack" id="toasts" aria-live="polite"></div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="auth-client.js"></script>
+  <script>
+  (function () {
+    const { api, debounce, setHint, starfield } = MiniAuth;
+    starfield('stars');
+
+    const el = (id) => document.getElementById(id);
+    const searchInput = el('searchInput');
+    const searchHint = el('searchHint');
+    const searchResults = el('searchResults');
+    const requestsPanel = el('requestsPanel');
+    const requestList = el('requestList');
+    const requestCount = el('requestCount');
+    const friendList = el('friendList');
+    const friendCount = el('friendCount');
+    const chatHead = el('chatHead');
+    const chatBlank = el('chatBlank');
+    const chatLog = el('chatLog');
+    const chatTitle = el('chatTitle');
+    const chatStatus = el('chatStatus');
+    const chatAvatar = el('chatAvatar');
+    const typingLine = el('typingLine');
+    const composeForm = el('composeForm');
+    const composeInput = el('composeInput');
+    const unfriendBtn = el('unfriendBtn');
+    const toasts = el('toasts');
+
+    let me = null;
+    let activeFriend = null;          // { id, username, online }
+    let friends = [];
+    const onlineIds = new Set();
+
+    const socket = io();
+
+    // ---- Small helpers ------------------------------------------------
+
+    function toast(text, kind = 'ok') {
+      const node = document.createElement('div');
+      node.className = 'toast-item' + (kind === 'info' ? ' info' : '');
+      node.textContent = text;                 // textContent: usernames appear in here
+      toasts.append(node);
+      setTimeout(() => node.remove(), 5000);
+    }
+
+    /** Builds an avatar element — image if they have one, initial if not. */
+    function avatarFor(user) {
+      if (user.avatarUrl) {
+        const img = document.createElement('img');
+        img.className = 'avatar';
+        img.src = user.avatarUrl;
+        img.alt = '';
+        return img;
+      }
+      const div = document.createElement('div');
+      div.className = 'avatar';
+      div.textContent = (user.username || '?').charAt(0).toUpperCase();
+      return div;
+    }
+
+    /**
+     * Every row in this page is built with createElement + textContent
+     * rather than an innerHTML template. Usernames are server-validated to
+     * [A-Za-z0-9_-] and message bodies are not, so a template string here
+     * would be a stored-XSS hole the moment a message body is interpolated.
+     */
+    function makeRow({ user, subtitle, actions = [], unread = 0, onClick }) {
+      const row = document.createElement('div');
+      row.className = 'row';
+      if (onClick) {
+        row.addEventListener('click', (event) => {
+          if (event.target.closest('button')) return;   // let action buttons win
+          onClick();
+        });
+      } else {
+        row.style.cursor = 'default';
+      }
+
+      row.append(avatarFor(user));
+
+      const main = document.createElement('div');
+      main.className = 'row-main';
+
+      const name = document.createElement('div');
+      name.className = 'row-name';
+      name.textContent = user.username;
+      main.append(name);
+
+      if (subtitle) {
+        const sub = document.createElement('div');
+        sub.className = 'row-sub';
+        sub.append(subtitle);
+        main.append(sub);
+      }
+      row.append(main);
+
+      if (unread > 0) {
+        const badge = document.createElement('span');
+        badge.className = 'badge-unread';
+        badge.textContent = String(unread);
+        row.append(badge);
+      }
+
+      if (actions.length) {
+        const wrap = document.createElement('div');
+        wrap.className = 'row-actions';
+        wrap.append(...actions);
+        row.append(wrap);
+      }
+
+      return row;
+    }
+
+    /** Presence dot + label. The word is there so colour isn't the only cue. */
+    function presenceNode(online) {
+      const frag = document.createDocumentFragment();
+      const dot = document.createElement('span');
+      dot.className = 'dot' + (online ? ' on' : '');
+      frag.append(dot, online ? 'Online' : 'Offline');
+      return frag;
+    }
+
+    function button(label, className, onClick) {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'mini ' + className;
+      btn.textContent = label;
+      btn.addEventListener('click', onClick);
+      return btn;
+    }
+
+    // ---- Friends list --------------------------------------------------
+
+    async function loadFriends() {
+      const { ok, data } = await api('/api/friends');
+      if (!ok) return;
+
+      friends = data.friends;
+      friendCount.textContent = String(friends.length);
+      friendList.innerHTML = '';
+
+      if (friends.length === 0) {
+        const p = document.createElement('p');
+        p.className = 'empty';
+        p.textContent = 'No friends yet. Search for someone above.';
+        friendList.append(p);
+        return;
+      }
+
+      for (const friend of friends) {
+        const online = onlineIds.has(friend.id) || friend.online;
+        const row = makeRow({
+          user: friend,
+          subtitle: presenceNode(online),
+          unread: friend.unread,
+          onClick: () => openChat(friend),
+        });
+        row.dataset.friendId = String(friend.id);
+        if (activeFriend && activeFriend.id === friend.id) row.classList.add('active');
+        friendList.append(row);
+      }
+    }
+
+    // ---- Requests --------------------------------------------------------
+
+    async function loadRequests() {
+      const { ok, data } = await api('/api/friends/requests');
+      if (!ok) return;
+
+      const { incoming, outgoing } = data;
+      requestList.innerHTML = '';
+
+      const total = incoming.length + outgoing.length;
+      requestsPanel.hidden = total === 0;
+      requestCount.hidden = incoming.length === 0;
+      requestCount.textContent = String(incoming.length);
+
+      for (const request of incoming) {
+        requestList.append(makeRow({
+          user: request,
+          subtitle: 'wants to be friends',
+          actions: [
+            button('ACCEPT', '', async () => {
+              const res = await api(`/api/friends/requests/${request.friendshipId}/accept`, { method: 'POST' });
+              if (res.ok) { toast(`You and ${request.username} are now friends.`); refreshAll(); }
+              else toast(res.data.message || 'Failed.', 'info');
+            }),
+            button('✕', 'ghost', async () => {
+              await api(`/api/friends/requests/${request.friendshipId}/decline`, { method: 'POST' });
+              refreshAll();
+            }),
+          ],
+        }));
+      }
+
+      for (const request of outgoing) {
+        requestList.append(makeRow({
+          user: request,
+          subtitle: 'request sent',
+          actions: [
+            button('CANCEL', 'ghost', async () => {
+              await api(`/api/friends/requests/${request.friendshipId}/decline`, { method: 'POST' });
+              refreshAll();
+            }),
+          ],
+        }));
+      }
+    }
+
+    // ---- Search ----------------------------------------------------------
+
+    // Same out-of-order guard as the signup form: a slow early response must
+    // not overwrite the results for what's currently in the box.
+    let searchSeq = 0;
+
+    const runSearch = debounce(async (query) => {
+      const seq = ++searchSeq;
+      const { data } = await api('/api/friends/search?q=' + encodeURIComponent(query));
+      if (seq !== searchSeq) return;
+
+      searchResults.innerHTML = '';
+      setHint(searchHint, '');
+
+      if (!data.results || data.results.length === 0) {
+        setHint(searchHint, 'Nobody found.', 'bad');
+        return;
+      }
+
+      for (const user of data.results) {
+        const actions = [];
+
+        if (user.relationship === 'none') {
+          actions.push(button('ADD', '', async (event) => {
+            const res = await api('/api/friends/requests', {
+              method: 'POST', body: { username: user.username },
+            });
+            toast(res.data.message || (res.ok ? 'Request sent.' : 'Failed.'), res.ok ? 'ok' : 'info');
+            runSearch(searchInput.value.trim());
+            refreshAll();
+          }));
+        } else if (user.relationship === 'outgoing') {
+          const pending = button('PENDING', 'ghost', () => {});
+          pending.disabled = true;
+          actions.push(pending);
+        } else if (user.relationship === 'incoming') {
+          actions.push(button('ACCEPT', '', async () => {
+            await api(`/api/friends/requests/${user.friendshipId}/accept`, { method: 'POST' });
+            toast(`You and ${user.username} are now friends.`);
+            runSearch(searchInput.value.trim());
+            refreshAll();
+          }));
+        } else {
+          const already = button('FRIENDS', 'ghost', () => {});
+          already.disabled = true;
+          actions.push(already);
+        }
+
+        searchResults.append(makeRow({
+          user,
+          subtitle: presenceNode(onlineIds.has(user.id) || user.online),
+          actions,
+        }));
+      }
+    }, 300);
+
+    searchInput.addEventListener('input', () => {
+      const query = searchInput.value.trim();
+      searchResults.innerHTML = '';
+
+      if (query.length === 0) { setHint(searchHint, ''); searchSeq++; return; }
+      if (query.length < 2) {
+        setHint(searchHint, 'Type at least 2 characters.', 'busy');
+        searchSeq++;
+        return;
+      }
+      setHint(searchHint, 'Searching…', 'busy');
+      runSearch(query);
+    });
+
+    // ---- Chat ------------------------------------------------------------
+
+    function messageNode(message) {
+      const wrap = document.createElement('div');
+      wrap.className = 'msg' + (message.senderId === me.id ? ' mine' : '');
+
+      const body = document.createElement('div');
+      body.className = 'msg-body';
+      body.textContent = message.body;      // never innerHTML — this is user text
+      wrap.append(body);
+
+      const meta = document.createElement('div');
+      meta.className = 'msg-meta';
+      // SQLite stores UTC as "YYYY-MM-DD HH:MM:SS"; the Z makes the browser
+      // read it as UTC rather than local, so times aren't shifted.
+      const when = new Date(message.createdAt.replace(' ', 'T') + 'Z');
+      meta.textContent = isNaN(when) ? '' : when.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      wrap.append(meta);
+
+      return wrap;
+    }
+
+    function scrollToBottom() {
+      chatLog.scrollTop = chatLog.scrollHeight;
+    }
+
+    async function openChat(friend) {
+      activeFriend = friend;
+
+      chatBlank.hidden = true;
+      chatHead.hidden = false;
+      chatLog.hidden = false;
+      composeForm.hidden = false;
+
+      chatTitle.textContent = friend.username;
+      chatAvatar.replaceWith(Object.assign(avatarFor(friend), { id: 'chatAvatar' }));
+      updateChatStatus();
+
+      chatLog.innerHTML = '';
+      composeInput.focus();
+
+      const { ok, data } = await api('/api/messages/' + friend.id);
+      if (!ok) {
+        chatLog.innerHTML = '';
+        const p = document.createElement('p');
+        p.className = 'empty';
+        p.textContent = data.message || 'Could not load messages.';
+        chatLog.append(p);
+        return;
+      }
+
+      chatLog.innerHTML = '';
+      if (data.messages.length === 0) {
+        const p = document.createElement('p');
+        p.className = 'empty';
+        p.textContent = 'No messages yet. Say hello.';
+        chatLog.append(p);
+      } else {
+        for (const message of data.messages) chatLog.append(messageNode(message));
+      }
+      scrollToBottom();
+
+      // Opening clears the unread badge (the server marked them read).
+      loadFriends();
+    }
+
+    function updateChatStatus() {
+      if (!activeFriend) return;
+      const online = onlineIds.has(activeFriend.id);
+      chatStatus.textContent = '';
+      chatStatus.append(presenceNode(online));
+    }
+
+    composeForm.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      if (!activeFriend) return;
+
+      const body = composeInput.value.trim();
+      if (!body) return;
+
+      composeInput.value = '';
+
+      const { ok, data } = await api('/api/messages/' + activeFriend.id, {
+        method: 'POST', body: { body },
+      });
+
+      if (!ok) {
+        toast(data.message || 'Message not sent.', 'info');
+        composeInput.value = body;         // give it back rather than losing it
+        return;
+      }
+      // The socket echo (dm:message) renders it — see the handler below.
+    });
+
+    // Typing indicator, throttled: one event per second of continuous typing
+    // rather than one per keystroke.
+    let lastTypingSent = 0;
+    composeInput.addEventListener('input', () => {
+      if (!activeFriend) return;
+      const now = Date.now();
+      if (now - lastTypingSent < 1000) return;
+      lastTypingSent = now;
+      socket.emit('dm:typing', { toUserId: activeFriend.id });
+    });
+
+    unfriendBtn.addEventListener('click', async () => {
+      if (!activeFriend) return;
+      if (!confirm(`Remove ${activeFriend.username} as a friend? This deletes your messages.`)) return;
+
+      const { ok } = await api('/api/friends/' + activeFriend.id, { method: 'DELETE' });
+      if (ok) {
+        toast(`Removed ${activeFriend.username}.`, 'info');
+        closeChat();
+        refreshAll();
+      }
+    });
+
+    function closeChat() {
+      activeFriend = null;
+      chatHead.hidden = true;
+      chatLog.hidden = true;
+      composeForm.hidden = true;
+      chatBlank.hidden = false;
+      typingLine.textContent = '';
+    }
+
+    // ---- Socket events ----------------------------------------------------
+
+    socket.on('presence:snapshot', ({ onlineFriendIds }) => {
+      onlineIds.clear();
+      for (const id of onlineFriendIds) onlineIds.add(id);
+      loadFriends();
+      updateChatStatus();
+    });
+
+    socket.on('friend:online', ({ userId, username }) => {
+      onlineIds.add(userId);
+      loadFriends();
+      updateChatStatus();
+      toast(`${username} came online.`, 'info');
+    });
+
+    socket.on('friend:offline', ({ userId }) => {
+      onlineIds.delete(userId);
+      loadFriends();
+      updateChatStatus();
+    });
+
+    socket.on('friend:request', ({ user }) => {
+      toast(`${user.username} sent you a friend request.`);
+      loadRequests();
+    });
+
+    socket.on('friend:accepted', ({ user }) => {
+      toast(`${user.username} accepted your friend request.`);
+      refreshAll();
+    });
+
+    socket.on('friend:removed', () => {
+      refreshAll();
+    });
+
+    socket.on('dm:message', (message) => {
+      const otherId = message.senderId === me.id ? message.recipientId : message.senderId;
+
+      // Message for the conversation that's open — append it.
+      if (activeFriend && otherId === activeFriend.id) {
+        const placeholder = chatLog.querySelector('.empty');
+        if (placeholder) placeholder.remove();
+
+        // Only autoscroll if they were already at the bottom; yanking the
+        // view down while someone is reading history is infuriating.
+        const atBottom = chatLog.scrollHeight - chatLog.scrollTop - chatLog.clientHeight < 60;
+        chatLog.append(messageNode(message));
+        if (atBottom) scrollToBottom();
+
+        typingLine.textContent = '';
+
+        // Mark read immediately, since they're looking at it.
+        if (message.senderId !== me.id) api('/api/messages/' + otherId);
+        return;
+      }
+
+      // Message for a different conversation — badge it.
+      if (message.senderId !== me.id) {
+        toast(`${message.senderUsername}: ${message.body.slice(0, 60)}`);
+        loadFriends();
+      }
+    });
+
+    let typingTimer = null;
+    socket.on('dm:typing', ({ fromUserId }) => {
+      if (!activeFriend || fromUserId !== activeFriend.id) return;
+      typingLine.textContent = activeFriend.username + ' is typing…';
+      clearTimeout(typingTimer);
+      typingTimer = setTimeout(() => { typingLine.textContent = ''; }, 2500);
+    });
+
+    // ---- Boot --------------------------------------------------------------
+
+    function refreshAll() {
+      loadFriends();
+      loadRequests();
+    }
+
+    (async function init() {
+      const { data } = await api('/api/auth/me');
+      if (!data.user) { location.href = '/login.html?next=/friends.html'; return; }
+
+      me = data.user;
+      el('meLabel').textContent = me.username;
+      refreshAll();
+    })();
+  })();
+  </script>
+</body>
+</html>

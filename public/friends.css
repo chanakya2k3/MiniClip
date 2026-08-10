@@ -1,0 +1,313 @@
+/* Friends page + chat. Extends auth.css (loaded first) — palette, panel,
+   button and field styles all come from there. */
+
+.social-shell { width: 100%; max-width: 1040px; }
+
+.social-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  border: 4px solid var(--panel-edge);
+  border-radius: 10px;
+  background: var(--panel);
+  box-shadow: 0 0 0 3px var(--panel-line), 0 18px 50px rgba(0,0,0,.55);
+  padding: 16px 20px;
+  margin-bottom: 22px;
+}
+.social-top .auth-brand { margin: 0; font-size: 18px; text-align: left; }
+
+/* Two columns on desktop, stacked on narrow screens. */
+.social-grid {
+  display: grid;
+  grid-template-columns: minmax(280px, 360px) 1fr;
+  gap: 20px;
+  align-items: start;
+}
+@media (max-width: 860px) {
+  .social-grid { grid-template-columns: 1fr; }
+}
+
+.card-panel {
+  border: 4px solid var(--panel-edge);
+  border-radius: 10px;
+  background: var(--panel);
+  box-shadow: 0 0 0 3px var(--panel-line), 0 12px 30px rgba(0,0,0,.5);
+  padding: 18px 18px 20px;
+  margin-bottom: 20px;
+}
+
+.card-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-family: 'Press Start 2P', 'Courier New', monospace;
+  font-size: 11px;
+  letter-spacing: 2px;
+  color: var(--cream);
+  text-shadow: 2px 2px 0 var(--panel-edge);
+  margin-bottom: 14px;
+}
+.card-head::after {
+  content: '';
+  flex: 1;
+  height: 3px;
+  background: repeating-linear-gradient(90deg, var(--panel-line) 0 6px, transparent 6px 12px);
+}
+
+/* Count badge on section headers. */
+.pill {
+  font-family: 'Courier New', monospace;
+  font-size: 10px;
+  letter-spacing: 1px;
+  padding: 3px 7px;
+  border-radius: 4px;
+  background: var(--pipe-main);
+  color: #0d2005;
+  border: 2px solid var(--pipe-edge);
+}
+.pill[hidden] { display: none; }
+.pill.quiet { background: var(--panel-line); color: var(--muted); border-color: var(--panel-edge); }
+
+/* ---- Rows ------------------------------------------------------------ */
+.row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 10px;
+  border: 3px solid transparent;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background .12s ease, border-color .12s ease;
+}
+.row:hover { background: var(--panel-soft); }
+.row.active { background: var(--panel-soft); border-color: var(--pipe-main); }
+.row + .row { margin-top: 4px; }
+
+.avatar {
+  width: 30px; height: 30px;
+  flex: none;
+  border: 3px solid var(--panel-line);
+  border-radius: 5px;
+  background: var(--panel-soft);
+  object-fit: cover;
+  image-rendering: pixelated;
+  display: grid;
+  place-items: center;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.row-main { flex: 1; min-width: 0; }
+
+.row-name {
+  font-size: 12px;
+  letter-spacing: 1px;
+  color: var(--cream);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.row-sub {
+  font-size: 10px;
+  letter-spacing: 1px;
+  color: var(--muted);
+  margin-top: 3px;
+}
+
+/* Presence dot. Colour alone would be invisible to a red/green colourblind
+   player, so the text beside it always says the state too. */
+.dot {
+  display: inline-block;
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  background: var(--panel-line);
+  margin-right: 6px;
+  vertical-align: middle;
+}
+.dot.on { background: var(--pipe-main); box-shadow: 0 0 6px var(--pipe-main); }
+
+.badge-unread {
+  flex: none;
+  min-width: 20px;
+  text-align: center;
+  font-size: 10px;
+  padding: 3px 6px;
+  border-radius: 10px;
+  background: var(--p1-glow);
+  color: #2a1f00;
+  border: 2px solid #8a6f00;
+}
+
+/* ---- Small buttons --------------------------------------------------- */
+.mini {
+  flex: none;
+  font-family: 'Courier New', monospace;
+  font-size: 10px;
+  letter-spacing: 1px;
+  cursor: pointer;
+  padding: 6px 9px;
+  border-radius: 5px;
+  border: 2px solid var(--pipe-edge);
+  background: var(--pipe-main);
+  color: #0d2005;
+}
+.mini:hover:not(:disabled) { background: var(--pipe-light); }
+.mini:disabled { opacity: .5; cursor: not-allowed; }
+.mini.ghost {
+  background: var(--panel-soft);
+  color: var(--muted);
+  border-color: var(--panel-line);
+}
+.mini.ghost:hover:not(:disabled) { background: #262a4a; color: var(--cream); }
+.mini.danger { background: var(--danger-dark); color: #ffc9c9; border-color: #4a1414; }
+.mini.danger:hover:not(:disabled) { background: #8a2828; }
+
+.row-actions { display: flex; gap: 6px; flex: none; }
+
+.empty {
+  font-size: 11px;
+  line-height: 1.9;
+  letter-spacing: 1px;
+  color: var(--muted);
+  padding: 6px 2px;
+}
+
+/* ---- Chat ------------------------------------------------------------- */
+.chat-panel {
+  border: 4px solid var(--panel-edge);
+  border-radius: 10px;
+  background: var(--panel);
+  box-shadow: 0 0 0 3px var(--panel-line), 0 12px 30px rgba(0,0,0,.5);
+  display: flex;
+  flex-direction: column;
+  height: min(72vh, 660px);
+}
+
+.chat-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 16px;
+  border-bottom: 4px solid var(--panel-edge);
+  flex: none;
+}
+.chat-title {
+  font-family: 'Press Start 2P', 'Courier New', monospace;
+  font-size: 11px;
+  letter-spacing: 1px;
+  color: var(--cream);
+}
+.chat-status { font-size: 10px; letter-spacing: 1px; color: var(--muted); margin-top: 6px; }
+
+.chat-log {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--panel-line) transparent;
+}
+.chat-log::-webkit-scrollbar { width: 10px; }
+.chat-log::-webkit-scrollbar-thumb { background: var(--panel-line); border-radius: 5px; }
+
+.msg { max-width: 74%; }
+.msg.mine { align-self: flex-end; }
+
+.msg-body {
+  font-size: 12px;
+  line-height: 1.7;
+  padding: 9px 12px;
+  border-radius: 8px;
+  border: 3px solid var(--panel-line);
+  background: var(--panel-soft);
+  color: var(--cream);
+  /* Long unbroken strings (a pasted URL) must wrap rather than force the
+     whole panel to scroll sideways. */
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+.msg.mine .msg-body {
+  background: rgba(43,107,22,.35);
+  border-color: var(--pipe-dark);
+}
+.msg-meta {
+  font-size: 9px;
+  letter-spacing: 1px;
+  color: var(--muted);
+  margin-top: 5px;
+}
+.msg.mine .msg-meta { text-align: right; }
+
+.typing {
+  font-size: 10px;
+  letter-spacing: 1px;
+  color: var(--muted);
+  font-style: italic;
+  padding: 0 16px 8px;
+  min-height: 18px;
+  flex: none;
+}
+
+.chat-compose {
+  display: flex;
+  gap: 10px;
+  padding: 14px 16px;
+  border-top: 4px solid var(--panel-edge);
+  flex: none;
+}
+.chat-compose input {
+  flex: 1;
+  font-family: 'Courier New', monospace;
+  font-size: 13px;
+  color: var(--cream);
+  background: var(--panel-soft);
+  border: 3px solid var(--panel-line);
+  border-radius: 6px;
+  padding: 10px 12px;
+  outline: none;
+}
+.chat-compose input:focus { border-color: var(--pipe-main); }
+.chat-compose input:disabled { opacity: .5; }
+.chat-compose button { flex: none; width: auto; padding: 10px 16px; margin: 0; }
+
+.chat-blank {
+  flex: 1;
+  display: grid;
+  place-items: center;
+  text-align: center;
+  font-size: 11px;
+  letter-spacing: 1px;
+  line-height: 2.2;
+  color: var(--muted);
+  padding: 30px;
+}
+
+/* ---- Toast ------------------------------------------------------------ */
+.toast-stack {
+  position: fixed;
+  right: 18px;
+  bottom: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  z-index: 50;
+  max-width: 320px;
+}
+.toast-item {
+  font-size: 11px;
+  line-height: 1.7;
+  letter-spacing: .5px;
+  padding: 11px 14px;
+  border-radius: 6px;
+  border: 3px solid var(--pipe-dark);
+  background: #14210d;
+  color: #ccf5b8;
+  box-shadow: 0 8px 24px rgba(0,0,0,.6);
+  animation: toast-in .18s ease-out;
+}
+.toast-item.info { border-color: #17607a; background: #0c1e26; color: #bfe9f7; }
+@keyframes toast-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }

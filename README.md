@@ -1,8 +1,9 @@
 # MiniClip
 
-A small arcade site with server-authoritative multiplayer and a full
-authentication system — password accounts, Google OAuth, sessions, and
-per-user high scores.
+A small arcade site with server-authoritative multiplayer, a full
+authentication system — password accounts, Google OAuth, sessions, per-user
+high scores — and a social layer: friends, presence, direct messages,
+in-match chat and peer-to-peer voice.
 
 Built as a learning project, so the code is commented with *why* rather than
 *what*. This README covers the decisions worth defending in an interview.
@@ -17,8 +18,10 @@ Google sign-in is optional — leave the `GOOGLE_*` variables blank and the app
 runs with password login only.
 
 ```bash
-npm test            # multiplayer reconnect behaviour (18 checks)
-npm run test:auth   # auth end-to-end against a real server (42 checks)
+npm test             # multiplayer reconnect behaviour (18 checks)
+npm run test:auth    # auth end-to-end against a real server (42 checks)
+npm run test:social  # friends, DMs, presence, chat, voice signalling (54 checks)
+npm run test:all     # auth + social
 ```
 
 ---
@@ -41,7 +44,13 @@ src/
   validators/           input rules, shared by signup and OAuth completion
   controllers/          request handling and flow control
   routes/               URL surface
-  realtime/             the tic-tac-toe game server
+  realtime/
+    index.js            registers every socket feature on one io server
+    hub.js              userId -> live sockets; lets HTTP controllers push events
+    social.js           presence, typing indicators
+    ticTacToe.js        the game
+    roomChat.js         ephemeral in-match chat
+    voice.js            WebRTC signalling relay
 public/                 all browser-facing files, and nothing else
 ```
 
@@ -158,6 +167,68 @@ codebase: `req.session.userId`.
 
 ---
 
+### Friendships are one row, not two
+
+The symmetric alternative — storing `A→B` and `B→A` — makes "list my friends"
+a single-column lookup. It's a trap: every accept, decline and removal then
+has to update two rows atomically, and the first missed write leaves a
+friendship that exists in one direction only. One row cannot disagree with
+itself. The cost is that lookups check both columns, which two indexes cover.
+
+The interesting edge case is B requesting A while A→B is already pending.
+That's two people who both want to be friends, so it resolves to `accepted`
+rather than creating a second row — otherwise you get two pending requests
+that each look unanswered forever. `sendRequest` runs in a transaction
+because it reads the current relationship then writes based on it, and
+`(A,B)` and `(B,A)` are different keys so the UNIQUE constraint can't catch
+that race on its own.
+
+### Messaging is friends-only, re-checked every time
+
+Not checked once when the conversation opens — on every read, every write,
+every mark-as-read. Friendships end, and a check at open time means someone
+who was just unfriended keeps a working socket into your inbox for as long
+as they leave the tab open. A *pending* request grants nothing, or "send a
+friend request" would become "deliver a message to anyone".
+
+Unfriending deletes the conversation. Leaving it would mean history neither
+party can open but the database still holds, which would silently reappear
+if they friended again later. There's a test for exactly that.
+
+### Presence is derived, not stored
+
+There is no `users.is_online` column. A column like that is wrong the instant
+a process crashes — it records "was online when we last managed to write",
+and recovering it means a sweep job that guesses. The set of live sockets in
+`src/realtime/hub.js` is the truth, and it resets correctly on restart by
+construction. One user maps to a *set* of sockets, because people have three
+tabs open and a phone.
+
+### Match chat is ephemeral, DMs are not
+
+Two kinds of chat with opposite storage decisions, on purpose. In-match chat
+is banter attached to a room that stops existing when the players leave —
+persisting it would grow a table forever holding the least valuable text on
+the site. Direct messages between friends are a conversation people expect to
+find tomorrow, so those are rows.
+
+### Voice: WebRTC, and what it can't do
+
+Audio never touches the server. `src/realtime/voice.js` is a postbox that
+relays SDP offers/answers and ICE candidates; once the peers connect, audio
+flows browser-to-browser. Routing it through Node would mean transcoding and
+bandwidth that scales with the number of people talking.
+
+The honest limitation: this is **STUN-only**. STUN tells each peer what its
+public address looks like from outside, which is enough to hole-punch on most
+home networks. It fails against symmetric NAT — many corporate networks and
+some mobile carriers — where the fix is a TURN relay, and TURN can't be free
+because it carries every byte of the call. The UI reports "couldn't connect"
+rather than hanging, and adding TURN later is a config change, not a rewrite.
+
+Scope is 1:1, tied to a game room, accounts only. Group voice needs a full
+mesh (N² connections, falls apart past ~4 people) or an SFU.
+
 ## Security notes
 
 | Concern | Handling |
@@ -177,6 +248,12 @@ codebase: `req.session.userId`.
 | Case impersonation | Uniqueness enforced on a lowercased canonical column |
 | Secret exposure | `.env` gitignored; static root is `public/`, so `/​.env` and `/server.js` 404 |
 | Supply chain | zxcvbn self-hosted from `node_modules`, not a CDN — no third-party script on the password field |
+| Socket identity | Every socket's user comes from `socket.request.session.userId`; a client-supplied name or id is ignored (tested by trying to spoof one) |
+| Message spam | Per-*user* rate limits on the HTTP side, plus a token bucket on socket events, which never touch Express |
+| Signalling relay abuse | `voice:signal` only forwards between two sockets in the same voice room, and stamps `from` server-side |
+| Room chat injection | A socket must have joined a room before it can broadcast into it |
+| Directory scraping | User search needs 2+ characters, is capped at 10 results, and escapes `%`/`_` so LIKE wildcards are literal |
+| Request hijacking | Accept/decline check that the friendship row actually belongs to the caller, so guessing ids gets a 404 |
 
 Verified by `npm run test:auth`, which drives a real server over HTTP.
 

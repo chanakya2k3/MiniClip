@@ -10,6 +10,94 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="style.css" id="appStyles" />
+  <style>
+    /* In-match chat + voice. Kept in this file rather than style.css so the
+       dev CSS hot-swap of style.css stays untouched. */
+    .commsbar {
+      margin-top: 18px;
+      border: 3px solid var(--panel-line, #2a2d4a);
+      border-radius: 8px;
+      background: rgba(8, 10, 20, .6);
+      overflow: hidden;
+    }
+    .comms-head {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 9px 12px;
+      border-bottom: 3px solid var(--panel-line, #2a2d4a);
+      font-size: 10px;
+      letter-spacing: 2px;
+      color: #8b8fb5;
+    }
+    .comms-head b { color: #fdf6e3; font-weight: normal; }
+    .comms-spacer { flex: 1; }
+
+    .vbtn {
+      font-family: 'Courier New', monospace;
+      font-size: 10px;
+      letter-spacing: 1px;
+      cursor: pointer;
+      padding: 6px 10px;
+      border-radius: 5px;
+      border: 2px solid #1a3d0d;
+      background: #5ec93f;
+      color: #0d2005;
+    }
+    .vbtn:hover:not(:disabled) { background: #8ef05f; }
+    .vbtn:disabled { opacity: .45; cursor: not-allowed; }
+    .vbtn.off { background: #1d2039; color: #8b8fb5; border-color: #2a2d4a; }
+    .vbtn.live { background: #ff6b6b; color: #2a0000; border-color: #6b1f1f; }
+
+    .voice-state { font-size: 9px; letter-spacing: 1px; color: #8b8fb5; }
+
+    .chat-feed {
+      height: 150px;
+      overflow-y: auto;
+      padding: 10px 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 7px;
+      scrollbar-width: thin;
+      scrollbar-color: #2a2d4a transparent;
+    }
+    .chat-feed::-webkit-scrollbar { width: 8px; }
+    .chat-feed::-webkit-scrollbar-thumb { background: #2a2d4a; border-radius: 4px; }
+
+    .cmsg { font-size: 12px; line-height: 1.6; overflow-wrap: anywhere; }
+    .cmsg .who { color: #8ef05f; letter-spacing: 1px; }
+    .cmsg .who.guest { color: #8b8fb5; }
+    .cmsg .tag {
+      font-size: 8px;
+      letter-spacing: 1px;
+      padding: 1px 4px;
+      border-radius: 3px;
+      border: 1px solid #2a2d4a;
+      color: #8b8fb5;
+      margin-left: 4px;
+    }
+    .cmsg .txt { color: #fdf6e3; }
+    .cmsg.system { color: #8b8fb5; font-style: italic; font-size: 11px; }
+
+    .chat-send {
+      display: flex;
+      gap: 8px;
+      padding: 10px 12px;
+      border-top: 3px solid var(--panel-line, #2a2d4a);
+    }
+    .chat-send input {
+      flex: 1;
+      font-family: 'Courier New', monospace;
+      font-size: 12px;
+      color: #fdf6e3;
+      background: #1d2039;
+      border: 2px solid #2a2d4a;
+      border-radius: 5px;
+      padding: 8px 10px;
+      outline: none;
+    }
+    .chat-send input:focus { border-color: #5ec93f; }
+  </style>
 </head>
 <body>
   <!-- Purely decorative backdrop; kept out of the game markup so a restyle
@@ -83,16 +171,39 @@
       <div class="turnbar" id="turnbar" data-state="idle">
         <span class="turnbar-text" id="status">Connecting…</span>
       </div>
-<!---
       <div class="board-shell">
         <div id="board" class="board"></div>
-      </div>    -->
+      </div>
 
       <div class="actions">
         <button id="rematchBtn" class="btn btn--ghost" hidden>PLAY AGAIN</button>
         <span class="room-tag">CAB <b id="roomTag">—</b></span>
       </div>
+
+      <!-- Match chat + voice. Not persisted: this is banter attached to a
+           room that stops existing when the players leave. -->
+      <div class="commsbar">
+        <div class="comms-head">
+          <b>COMMS</b>
+          <span class="comms-spacer"></span>
+          <span class="voice-state" id="voiceState">voice off</span>
+          <button class="vbtn off" id="voiceBtn" type="button">🎙 VOICE</button>
+          <button class="vbtn off" id="muteBtn" type="button" hidden>MUTE</button>
+        </div>
+
+        <div class="chat-feed" id="chatFeed"></div>
+
+        <form class="chat-send" id="chatForm">
+          <input id="chatInput" type="text" placeholder="message the room…"
+                 maxlength="300" autocomplete="off" />
+          <button class="vbtn" type="submit">SEND</button>
+        </form>
+      </div>
     </section>
+
+    <!-- The remote player's audio. autoplay + playsinline; not muted, or
+         there'd be no point. Hidden because there are no controls to show. -->
+    <audio id="remoteAudio" autoplay playsinline style="display:none"></audio>
   </main>
 
   <div class="toast" id="error" role="status" aria-live="polite"></div>
@@ -299,10 +410,24 @@
       toastTimer = setTimeout(() => errorEl.classList.remove("is-visible"), 2600);
     }
 
-    socket.on("room:joined", ({ symbol }) => {
+    socket.on("room:joined", ({ symbol, roomId, username }) => {
       mySymbol = symbol;
       joinForm.hidden = true;
       arenaEl.hidden = false;
+
+      // Chat rides the same room id as the game. Declared further down with
+      // the comms code; assigning here is safe because socket events only
+      // fire after this script has finished executing.
+      currentRoomId = roomId;
+      socket.emit("chat:join", { roomId });
+
+      // The server tells us whether this socket is an authenticated account.
+      // Guests can still chat, but their messages carry a GUEST tag.
+      if (username) {
+        nameInput.value = username;
+        nameInput.disabled = true;
+        nameInput.title = "Your account name — logged-in players can't be impersonated.";
+      }
     });
 
     socket.on("room:state", (state) => {
@@ -314,6 +439,316 @@
     socket.on("error", ({ message }) => {
       toast(message);
     });
+
+    // ================= MATCH CHAT =====================================
+    // Ephemeral, room-scoped. The server stamps the sender's name from their
+    // session, so a logged-in player can't be impersonated — a guest's chosen
+    // name is shown with a GUEST tag instead.
+
+    const chatFeed = $("chatFeed");
+    const chatForm = $("chatForm");
+    const chatInput = $("chatInput");
+    let currentRoomId = null;
+
+    function appendChat(message) {
+      const atBottom =
+        chatFeed.scrollHeight - chatFeed.scrollTop - chatFeed.clientHeight < 40;
+
+      const line = document.createElement("div");
+      line.className = "cmsg";
+
+      const who = document.createElement("span");
+      who.className = "who" + (message.registered ? "" : " guest");
+      who.textContent = message.username;
+      line.append(who);
+
+      if (!message.registered) {
+        const tag = document.createElement("span");
+        tag.className = "tag";
+        tag.textContent = "GUEST";
+        line.append(tag);
+      }
+
+      line.append(document.createTextNode(": "));
+
+      const text = document.createElement("span");
+      text.className = "txt";
+      // textContent, so a message body is text and never markup.
+      text.textContent = message.body;
+      line.append(text);
+
+      chatFeed.append(line);
+      if (atBottom) chatFeed.scrollTop = chatFeed.scrollHeight;
+    }
+
+    function appendSystem(text) {
+      const line = document.createElement("div");
+      line.className = "cmsg system";
+      line.textContent = text;
+      chatFeed.append(line);
+      chatFeed.scrollTop = chatFeed.scrollHeight;
+    }
+
+    chatForm.addEventListener("submit", (event) => {
+      event.preventDefault();
+      const body = chatInput.value.trim();
+      if (!body || !currentRoomId) return;
+
+      socket.emit("chat:message", {
+        roomId: currentRoomId,
+        body,
+        name: nameInput.value.trim() || "Player",
+      });
+      chatInput.value = "";
+    });
+
+    socket.on("chat:backlog", ({ messages }) => {
+      chatFeed.innerHTML = "";
+      for (const message of messages) appendChat(message);
+    });
+
+    socket.on("chat:message", appendChat);
+    socket.on("chat:error", ({ message }) => appendSystem(message));
+
+    // ================= VOICE CHAT (WebRTC) =============================
+    //
+    // The audio is peer-to-peer: it never passes through the Node server.
+    // The server only relays the handshake (see src/realtime/voice.js).
+    //
+    // Flow, once both sides have joined the voice channel:
+    //   newcomer  → createOffer  → setLocalDescription  → send offer
+    //   incumbent → setRemote(offer) → createAnswer → setLocal → send answer
+    //   newcomer  → setRemote(answer)
+    //   both      → trickle ICE candidates at each other until one pair works
+    //
+    // Whoever arrives second makes the offer. Without a rule like that both
+    // peers offer at once and the negotiation collides ("glare").
+
+    const voiceBtn = $("voiceBtn");
+    const muteBtn = $("muteBtn");
+    const voiceState = $("voiceState");
+    const remoteAudio = $("remoteAudio");
+
+    const ICE_SERVERS = [
+      // Public STUN. This only helps each peer discover its own public
+      // address; it carries no audio. Symmetric NAT (many corporate and
+      // mobile networks) defeats it and needs a TURN relay, which can't be
+      // free — see the note in src/realtime/voice.js.
+      { urls: "stun:stun.l.google.com:19302" },
+    ];
+
+    let pc = null;              // RTCPeerConnection
+    let localStream = null;
+    let peerSocketId = null;
+    let inVoice = false;
+    let muted = false;
+    // ICE candidates can arrive before the remote description is set;
+    // addIceCandidate throws if it does. Queue them until we're ready.
+    let pendingCandidates = [];
+
+    function setVoiceState(text) {
+      voiceState.textContent = text;
+    }
+
+    function closePeer() {
+      if (pc) {
+        pc.onicecandidate = null;
+        pc.ontrack = null;
+        pc.onconnectionstatechange = null;
+        pc.close();
+        pc = null;
+      }
+      peerSocketId = null;
+      pendingCandidates = [];
+      remoteAudio.srcObject = null;
+    }
+
+    function stopVoice(announce = true) {
+      if (announce && inVoice) socket.emit("voice:leave");
+      inVoice = false;
+
+      closePeer();
+
+      if (localStream) {
+        // Releases the microphone, which also turns off the browser's
+        // recording indicator. Leaving tracks live is how a page ends up
+        // holding the mic open after the user thinks they hung up.
+        for (const track of localStream.getTracks()) track.stop();
+        localStream = null;
+      }
+
+      voiceBtn.textContent = "🎙 VOICE";
+      voiceBtn.className = "vbtn off";
+      muteBtn.hidden = true;
+      muted = false;
+      muteBtn.textContent = "MUTE";
+      setVoiceState("voice off");
+    }
+
+    async function startVoice() {
+      if (!currentRoomId) return;
+
+      if (!navigator.mediaDevices?.getUserMedia) {
+        // getUserMedia needs a secure context. localhost counts as secure,
+        // so this fires mainly when the site is served over plain http from
+        // a non-local host.
+        setVoiceState("needs https");
+        appendSystem("Voice needs a secure connection (https or localhost).");
+        return;
+      }
+
+      try {
+        setVoiceState("asking for mic…");
+        localStream = await navigator.mediaDevices.getUserMedia({
+          // Browser-side processing. Without echoCancellation, each player
+          // hears themselves back through the other's speakers.
+          audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+          video: false,
+        });
+      } catch (err) {
+        setVoiceState("mic blocked");
+        appendSystem(
+          err.name === "NotAllowedError"
+            ? "Microphone permission denied."
+            : "No microphone available."
+        );
+        return;
+      }
+
+      inVoice = true;
+      voiceBtn.textContent = "✕ LEAVE";
+      voiceBtn.className = "vbtn live";
+      muteBtn.hidden = false;
+      setVoiceState("connecting…");
+
+      socket.emit("voice:join", { roomId: currentRoomId });
+    }
+
+    function createPeer(remoteSocketId) {
+      peerSocketId = remoteSocketId;
+      pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
+
+      for (const track of localStream.getTracks()) {
+        pc.addTrack(track, localStream);
+      }
+
+      pc.onicecandidate = (event) => {
+        if (!event.candidate) return;   // null marks the end of gathering
+        socket.emit("voice:signal", {
+          to: peerSocketId,
+          data: { type: "candidate", candidate: event.candidate },
+        });
+      };
+
+      pc.ontrack = (event) => {
+        remoteAudio.srcObject = event.streams[0];
+      };
+
+      pc.onconnectionstatechange = () => {
+        const state = pc?.connectionState;
+        if (state === "connected") setVoiceState("● live");
+        else if (state === "connecting") setVoiceState("connecting…");
+        else if (state === "failed") {
+          // Almost always NAT traversal, which is the STUN-only limitation.
+          setVoiceState("couldn't connect");
+          appendSystem("Voice couldn't connect — the network blocks peer-to-peer audio.");
+        } else if (state === "disconnected" || state === "closed") {
+          setVoiceState(inVoice ? "peer left" : "voice off");
+        }
+      };
+
+      return pc;
+    }
+
+    async function flushCandidates() {
+      for (const candidate of pendingCandidates) {
+        try { await pc.addIceCandidate(candidate); } catch { /* stale candidate */ }
+      }
+      pendingCandidates = [];
+    }
+
+    socket.on("voice:joined", async ({ peers }) => {
+      if (!inVoice) return;
+
+      if (peers.length === 0) {
+        setVoiceState("waiting for the other player…");
+        return;   // first one in; the next arrival will offer
+      }
+
+      // Someone's already here, so we're the newcomer and we initiate.
+      const peer = peers[0];
+      appendSystem(`Voice: connecting to ${peer.username}…`);
+
+      createPeer(peer.socketId);
+      const offer = await pc.createOffer();
+      await pc.setLocalDescription(offer);
+      socket.emit("voice:signal", { to: peer.socketId, data: { type: "offer", sdp: offer } });
+    });
+
+    socket.on("voice:peer-joined", ({ username }) => {
+      if (!inVoice) return;
+      appendSystem(`Voice: ${username} joined the channel.`);
+      setVoiceState("connecting…");
+      // They'll send the offer; nothing to do but wait.
+    });
+
+    socket.on("voice:peer-left", () => {
+      if (!inVoice) return;
+      appendSystem("Voice: the other player left the channel.");
+      closePeer();
+      setVoiceState("waiting for the other player…");
+    });
+
+    socket.on("voice:error", ({ message }) => {
+      appendSystem("Voice: " + message);
+      stopVoice(false);
+    });
+
+    socket.on("voice:signal", async ({ from, data }) => {
+      if (!inVoice || !localStream) return;
+
+      try {
+        if (data.type === "offer") {
+          if (!pc) createPeer(from);
+          await pc.setRemoteDescription(new RTCSessionDescription(data.sdp));
+          await flushCandidates();
+
+          const answer = await pc.createAnswer();
+          await pc.setLocalDescription(answer);
+          socket.emit("voice:signal", { to: from, data: { type: "answer", sdp: answer } });
+        } else if (data.type === "answer") {
+          if (!pc) return;
+          await pc.setRemoteDescription(new RTCSessionDescription(data.sdp));
+          await flushCandidates();
+        } else if (data.type === "candidate") {
+          const candidate = new RTCIceCandidate(data.candidate);
+          // Buffer until there's a remote description to attach it to.
+          if (!pc || !pc.remoteDescription) pendingCandidates.push(candidate);
+          else await pc.addIceCandidate(candidate);
+        }
+      } catch (err) {
+        console.error("voice signalling failed:", err);
+        setVoiceState("connection error");
+      }
+    });
+
+    voiceBtn.addEventListener("click", () => {
+      if (inVoice) stopVoice();
+      else startVoice();
+    });
+
+    muteBtn.addEventListener("click", () => {
+      if (!localStream) return;
+      muted = !muted;
+      // Disabling the track keeps the connection up but sends silence —
+      // cleaner than renegotiating, and instant.
+      for (const track of localStream.getAudioTracks()) track.enabled = !muted;
+      muteBtn.textContent = muted ? "UNMUTE" : "MUTE";
+      muteBtn.className = "vbtn " + (muted ? "live" : "off");
+    });
+
+    // Release the microphone if the tab goes away mid-call.
+    window.addEventListener("pagehide", () => stopVoice(false));
 
     // ---- Dev live-reload ----------------------------------------------
     // A CSS change swaps the stylesheet under the running page: no reload,

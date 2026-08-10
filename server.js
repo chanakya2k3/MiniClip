@@ -30,7 +30,7 @@ const { Server } = require("socket.io");
 
 const config = require("./src/config/env");
 const { createApp, PUBLIC_DIR } = require("./src/app");
-const { registerTicTacToe } = require("./src/realtime/ticTacToe");
+const { registerRealtime } = require("./src/realtime");
 const loginAttempts = require("./src/models/loginAttemptModel");
 
 const DEV = !config.isProduction;
@@ -53,7 +53,8 @@ const io = new Server(httpServer, {
 // is — one definition of "logged in", shared by both transports.
 io.engine.use(sessionMiddleware);
 
-registerTicTacToe(io);
+// Games, presence, chat and voice signalling.
+registerRealtime(io);
 
 // ---- Dev live-reload --------------------------------------------------
 // Watches the files you actually edit and pushes a hint to every client.

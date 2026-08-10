@@ -25,6 +25,14 @@
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
 
+/* The `hidden` attribute has to beat any layout rule in this file.
+   The browser's default is `[hidden] { display: none }` at type-selector
+   strength, so a single class rule like `.chat-head { display: flex }`
+   silently outranks it and the element stays on screen with `hidden` set.
+   Declaring it here, with !important, makes `hidden` mean hidden — which is
+   what every bit of JS in this project assumes when it toggles the property. */
+[hidden] { display: none !important; }
+
 body {
   font-family: 'Courier New', monospace;
   background: #05060d;

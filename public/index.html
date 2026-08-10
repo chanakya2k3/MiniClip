@@ -181,6 +181,21 @@
     gap: 12px;
   }
 
+  /* Unread/pending counter riding on the FRIENDS button. */
+  .notif {
+    display: inline-block;
+    min-width: 16px;
+    margin-left: 6px;
+    padding: 1px 5px;
+    border-radius: 9px;
+    font-size: 8px;
+    line-height: 1.6;
+    background: var(--p1-glow);
+    color: #2a1f00;
+    border: 2px solid #8a6f00;
+  }
+  .notif[hidden] { display: none; }
+
   .section-head {
     display: flex;
     align-items: center;
@@ -320,6 +335,9 @@
             <span id="accountNameText"></span>
             <small>VIEW PROFILE</small>
           </a>
+          <a class="account-btn ghost" href="/friends.html" id="friendsBtn">
+            FRIENDS<span class="notif" id="friendsNotif" hidden>0</span>
+          </a>
           <button class="account-btn ghost" id="logoutBtn" type="button">LOG OUT</button>
         </div>
 
@@ -343,6 +361,11 @@
     </p>
   </div>
 
+<!-- Served by the socket.io server on the same origin. Powers the live
+     friends/messages badge below, and gives the dev live-reload a listener
+     on this page (server.js watches index.html but nothing was connected
+     here to hear it). -->
+<script src="/socket.io/socket.io.js"></script>
 <script>
   // ---- The arcade catalogue ------------------------------------------
   // Adding a game is one entry in this array — nothing else in the page
@@ -507,8 +530,44 @@
       }
 
       signedIn.classList.add('show');
+      showSocialBadge();
     } else {
       signedOut.classList.add('show');
+    }
+
+    // Pending friend requests + unread messages, combined into one number.
+    // Uses the socket's presence snapshot rather than polling, so the badge
+    // also updates live while the page sits open on the arcade floor.
+    async function showSocialBadge() {
+      const badge = document.getElementById('friendsNotif');
+
+      function paint(count) {
+        badge.textContent = String(count);
+        badge.hidden = count <= 0;
+      }
+
+      try {
+        const [friendsRes, messagesRes] = await Promise.all([
+          fetch('/api/friends', { credentials: 'same-origin' }).then(r => r.json()),
+          fetch('/api/messages', { credentials: 'same-origin' }).then(r => r.json()),
+        ]);
+        paint((friendsRes.pendingRequests || 0) + (messagesRes.total || 0));
+      } catch { /* leave the badge hidden */ }
+
+      // Guarded rather than assumed: if the socket.io script fails to load
+      // (offline, or the page opened straight off disk), the badge keeps the
+      // value fetched above instead of throwing and killing the rest of the
+      // page's scripts.
+      if (typeof io !== 'function') return;
+
+      const socket = io();
+      socket.on('presence:snapshot', ({ unread, pendingRequests }) =>
+        paint((unread || 0) + (pendingRequests || 0)));
+      socket.on('friend:request', () => showSocialBadge());
+      socket.on('dm:message', () => showSocialBadge());
+
+      // Dev live-reload, which this page previously had no listener for.
+      socket.on('dev:reload', () => location.reload());
     }
 
     document.getElementById('logoutBtn').addEventListener('click', async () => {

@@ -14,3 +14,8 @@ data/
 Thumbs.db
 .vscode/
 .idea/
+
+# Local editor/agent tooling config. settings.local.json holds per-machine
+# permission grants, and launch.json is an auto-generated stub — neither is
+# project configuration anyone else needs.
+.claude/

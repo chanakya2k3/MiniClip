@@ -60,6 +60,7 @@ const { checkOrigin } = require("./middleware/originCheck");
 const { apiLimiter } = require("./middleware/rateLimit");
 const authRoutes = require("./routes/authRoutes");
 const scoreRoutes = require("./routes/scoreRoutes");
+const socialRoutes = require("./routes/socialRoutes");
 
 const PUBLIC_DIR = path.join(__dirname, "..", "public");
 
@@ -159,13 +160,17 @@ function createApp() {
   app.use("/api", checkOrigin);        // rejects cross-site POST/PUT/DELETE
   app.use("/api/auth", authRoutes);
   app.use("/api/scores", scoreRoutes);
+  app.use("/api/friends", socialRoutes.friends);
+  app.use("/api/messages", socialRoutes.messages);
 
   // ---- Protected pages -------------------------------------------------
   // Registered before express.static so the guard runs first; otherwise the
   // static handler would serve the file and never reach this.
-  app.get("/profile.html", requireAuthPage, (_req, res) => {
-    res.sendFile(path.join(PUBLIC_DIR, "profile.html"));
-  });
+  for (const page of ["profile.html", "friends.html"]) {
+    app.get(`/${page}`, requireAuthPage, (_req, res) => {
+      res.sendFile(path.join(PUBLIC_DIR, page));
+    });
+  }
 
   // ---- Static files ----------------------------------------------------
   // Rooted at public/, not the project directory. Serving the project root

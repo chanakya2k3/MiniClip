@@ -77,3 +77,65 @@ CREATE TABLE IF NOT EXISTS scores (
 -- SQLite walk the scores descending instead of sorting the whole table.
 CREATE INDEX IF NOT EXISTS idx_scores_game ON scores (game, score DESC);
 CREATE INDEX IF NOT EXISTS idx_scores_user ON scores (user_id, game);
+
+-- ---- Friendships -----------------------------------------------------
+-- ONE row per relationship, not two.
+--
+-- The tempting alternative is a symmetric pair of rows (A→B and B→A) so
+-- "who are my friends" is a single-column lookup. It's a trap: every accept,
+-- decline and removal then has to update two rows atomically, and the first
+-- time one of those writes is missed you get a friendship that exists in one
+-- direction. One row can't disagree with itself.
+--
+-- The cost is that lookups must check both columns, which is what the two
+-- indexes below are for.
+CREATE TABLE IF NOT EXISTS friendships (
+  id           INTEGER PRIMARY KEY AUTOINCREMENT,
+
+  -- Direction is retained after acceptance, because it's the only record of
+  -- who asked. A blocked relationship needs to know who blocked whom.
+  requester_id INTEGER NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+  addressee_id INTEGER NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+
+  -- pending  → requested, awaiting the addressee
+  -- accepted → mutual friends
+  -- blocked  → requester_id has blocked addressee_id
+  status       TEXT    NOT NULL DEFAULT 'pending'
+                 CHECK (status IN ('pending', 'accepted', 'blocked')),
+
+  created_at   TEXT    NOT NULL DEFAULT (datetime('now')),
+  responded_at TEXT,
+
+  -- Stops a double-send from creating two pending requests. The reverse
+  -- direction (B asking A while A→B is pending) can't be caught by a
+  -- constraint, so friendModel.sendRequest handles it as an auto-accept.
+  UNIQUE (requester_id, addressee_id),
+
+  -- Nobody friends themselves. Cheap to enforce here, and then it's true
+  -- regardless of which code path does the insert.
+  CHECK (requester_id <> addressee_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_friend_requester ON friendships (requester_id, status);
+CREATE INDEX IF NOT EXISTS idx_friend_addressee ON friendships (addressee_id, status);
+
+-- ---- Direct messages --------------------------------------------------
+CREATE TABLE IF NOT EXISTS direct_messages (
+  id           INTEGER PRIMARY KEY AUTOINCREMENT,
+
+  -- The two participant ids sorted ascending and joined ("7:12"). Without
+  -- it, loading a conversation is
+  --   WHERE (sender=? AND recipient=?) OR (sender=? AND recipient=?)
+  -- which is an OR across two columns and can't use one index. With it,
+  -- the same query is a single equality lookup on an indexed column.
+  pair_key     TEXT    NOT NULL,
+
+  sender_id    INTEGER NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+  recipient_id INTEGER NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+  body         TEXT    NOT NULL,
+  created_at   TEXT    NOT NULL DEFAULT (datetime('now')),
+  read_at      TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_dm_pair ON direct_messages (pair_key, id DESC);
+CREATE INDEX IF NOT EXISTS idx_dm_unread ON direct_messages (recipient_id, read_at);
